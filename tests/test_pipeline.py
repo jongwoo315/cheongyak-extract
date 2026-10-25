@@ -41,7 +41,7 @@ def make_transport(pdf_names: list[str], pdf: bytes | None = None) -> httpx.Mock
     return httpx.MockTransport(handler)
 
 
-def test_run_goes_from_fetch_to_report_with_stub_values(tmp_path):
+def test_run_goes_from_fetch_to_report_with_stub_values(tmp_path, capsys):
     report_path = tmp_path / "reports" / "skeleton.md"
     with httpx.Client(transport=make_transport(["a.pdf"] * 3)) as client:
         result = run(3, client, tmp_path / "raw", report_path, pause=lambda s: None)
@@ -57,6 +57,7 @@ def test_run_goes_from_fetch_to_report_with_stub_values(tmp_path):
     text = report_path.read_text(encoding="utf-8")
     assert "| 필드 | 정답 있음 | 정확도 |" in text
     assert "| 공급위치 | 3 | 0% | 100% | 0 | 0 | — |" in text
+    assert capsys.readouterr().out.strip() == text.strip()
 
 
 def test_run_skips_non_pdf_and_reports_reason(tmp_path):
