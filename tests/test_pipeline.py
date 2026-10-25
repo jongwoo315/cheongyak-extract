@@ -20,11 +20,11 @@ def make_pdf_bytes() -> bytes:
     return data
 
 
-def make_transport(pdf_names: list[str]) -> httpx.MockTransport:
+def make_transport(pdf_names: list[str], pdf: bytes | None = None) -> httpx.MockTransport:
     """PDF 요청이 올 때마다 pdf_names를 차례로 파일명으로 쓴다."""
     list_html = (FIXTURES / "list.html").read_bytes()
     detail_html = (FIXTURES / "detail.html").read_bytes()
-    pdf = make_pdf_bytes()
+    pdf = pdf if pdf is not None else make_pdf_bytes()
     names = iter(pdf_names)
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -90,3 +90,11 @@ def test_run_skips_announcement_when_download_fails(tmp_path):
 
     assert result.processed == 2
     assert result.skipped[0][0] == "2026000532" and "다운로드 실패" in result.skipped[0][1]
+
+
+def test_run_skips_announcement_when_pdf_is_corrupt(tmp_path):
+    transport = make_transport(["a.pdf"] * 3, pdf=b"not a pdf")
+    with httpx.Client(transport=transport) as client:
+        result = run(3, client, tmp_path / "raw", tmp_path / "r.md", pause=lambda s: None)
+    assert result.processed == 0
+    assert len(result.skipped) == 3 and "PDF" in result.skipped[0][1]

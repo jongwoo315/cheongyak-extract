@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import NamedTuple
 
 import httpx
+import pymupdf
 
 from cheongyak_extract.extract import FIELDS, extract
 from cheongyak_extract.fetch import LIST_URL, PAUSE_SECONDS, Skipped, download, parse_list
@@ -44,7 +45,11 @@ def run(
         except httpx.HTTPError as e:
             skipped.append((pbno, f"다운로드 실패: {e}"))
             continue
-        text = pages(out / "notice.pdf")
+        try:
+            text = pages(out / "notice.pdf")
+        except pymupdf.FileDataError as e:
+            skipped.append((pbno, f"PDF를 열 수 없음: {e}"))
+            continue
         truth = parse_truth((out / "detail.html").read_text(encoding="utf-8"))
         docs.append(Doc(pbno, truth, extract(text), text))
 
