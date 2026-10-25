@@ -78,3 +78,12 @@ def test_download_skips_non_pdf_attachment(tmp_path):
     with httpx.Client(transport=_transport(pdf_name="공고문.hwp")) as client:
         with pytest.raises(Skipped, match="PDF"):
             download(client, "2026000532", "2026000532", "계양", tmp_path, pause=lambda s: None)
+
+
+def test_download_skips_when_detail_has_no_pdf_link(tmp_path):
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, content="<html><body>링크 없음</body></html>".encode())
+
+    with httpx.Client(transport=httpx.MockTransport(handler)) as client:
+        with pytest.raises(Skipped, match="링크 없음"):
+            download(client, "2026000532", "2026000532", "계양", tmp_path, pause=lambda s: None)
