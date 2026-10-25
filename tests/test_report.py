@@ -56,3 +56,9 @@ def test_empty_evidence_counts_as_fabricated():
         (m,) = metrics([doc("A", Extraction("A", evidence, 1), ["foo"])], ("f",))
         assert m.fabricated == 1 and m.page_ok == 0.0
 
+
+
+def test_page_out_of_range_is_not_ok_and_does_not_crash():
+    for page in (0, 3):
+        (m,) = metrics([doc("A", Extraction("A", "foo", page), ["foo", "bar"])], ("f",))
+        assert m.page_ok == 0.0
