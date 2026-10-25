@@ -41,6 +41,9 @@ def run(
         except Skipped as e:
             skipped.append((pbno, str(e)))
             continue
+        except httpx.HTTPError as e:
+            skipped.append((pbno, f"다운로드 실패: {e}"))
+            continue
         text = pages(out / "notice.pdf")
         truth = parse_truth((out / "detail.html").read_text(encoding="utf-8"))
         docs.append(Doc(pbno, truth, extract(text), text))

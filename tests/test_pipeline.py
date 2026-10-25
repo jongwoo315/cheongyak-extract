@@ -67,3 +67,26 @@ def test_run_skips_non_pdf_and_reports_reason(tmp_path):
     assert result.processed == 2
     assert [pbno for pbno, _ in result.skipped] == ["2026000532"]
     assert "건너뛴 공고" in report_path.read_text(encoding="utf-8")
+
+
+def test_run_skips_announcement_when_download_fails(tmp_path):
+    list_html = (FIXTURES / "list.html").read_bytes()
+    detail_html = (FIXTURES / "detail.html").read_bytes()
+    pdf = make_pdf_bytes()
+    posts = iter([500, 200, 200])
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.method == "POST":
+            status = next(posts)
+            return httpx.Response(status, content=detail_html if status == 200 else b"")
+        if str(request.url) == LIST_URL:
+            return httpx.Response(200, content=list_html)
+        return httpx.Response(
+            200, content=pdf, headers={"content-disposition": 'attachment; filename="a.pdf"'}
+        )
+
+    with httpx.Client(transport=httpx.MockTransport(handler)) as client:
+        result = run(2, client, tmp_path / "raw", tmp_path / "r.md", pause=lambda s: None)
+
+    assert result.processed == 2
+    assert result.skipped[0][0] == "2026000532" and "다운로드 실패" in result.skipped[0][1]
