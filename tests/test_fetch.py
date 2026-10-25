@@ -35,6 +35,11 @@ def test_filename_from_disposition_decodes_url_encoding():
     assert filename_from_disposition(header) == "2026000532 계양신도시.pdf"
 
 
+def test_filename_from_disposition_decodes_rfc5987_form():
+    header = f"attachment; filename*=UTF-8''{quote('2026000518 공고문.pdf')}"
+    assert filename_from_disposition(header) == "2026000518 공고문.pdf"
+
+
 def test_filename_from_disposition_missing_returns_none():
     assert filename_from_disposition(None) is None
     assert filename_from_disposition("attachment") is None

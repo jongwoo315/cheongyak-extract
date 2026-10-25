@@ -41,7 +41,8 @@ def pdf_links(detail_html: str) -> list[str]:
 
 
 def filename_from_disposition(header: str | None) -> str | None:
-    m = re.search(r'filename="?([^";]+)"?', header or "")
+    # 응답마다 `filename="..."`과 `filename*=UTF-8''...` 두 꼴이 섞여 온다
+    m = re.search(r"filename\*?=(?:UTF-8'')?\"?([^\";]+)\"?", header or "")
     return unquote(m.group(1)) if m else None
 
 
