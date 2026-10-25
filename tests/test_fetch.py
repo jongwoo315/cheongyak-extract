@@ -87,3 +87,22 @@ def test_download_skips_when_detail_has_no_pdf_link(tmp_path):
     with httpx.Client(transport=httpx.MockTransport(handler)) as client:
         with pytest.raises(Skipped, match="링크 없음"):
             download(client, "2026000532", "2026000532", "계양", tmp_path, pause=lambda s: None)
+
+
+def test_download_tries_next_link_when_first_is_not_pdf(tmp_path):
+    base = "https://static.applyhome.co.kr/ai/aia/getAtchmnfl.do"
+    html = f'<a href="{base}?n=1">hwp</a><a href="{base}?n=2">pdf</a>'.encode()
+    names = {"n=1": "a.hwp", "n=2": "b.pdf"}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.method == "POST":
+            return httpx.Response(200, content=html)
+        name = names[str(request.url).split("?")[1]]
+        disposition = f'attachment; filename="{name}"'
+        return httpx.Response(
+            200, content=name.encode(), headers={"content-disposition": disposition}
+        )
+
+    with httpx.Client(transport=httpx.MockTransport(handler)) as client:
+        out = download(client, "1", "1", "x", tmp_path, pause=lambda s: None)
+    assert (out / "notice.pdf").read_bytes() == b"b.pdf"
