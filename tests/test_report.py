@@ -49,3 +49,10 @@ def test_denominator_zero_renders_dash():
 def test_render_markdown_formats_percentages():
     (m,) = metrics([doc("A", EMPTY, ["p"])], ("f",))
     assert "| f | 1 | 0% | 100% | 0 | 0 | — |" in render_markdown([m])
+
+
+def test_empty_evidence_counts_as_fabricated():
+    for evidence in ("", "  "):
+        (m,) = metrics([doc("A", Extraction("A", evidence, 1), ["foo"])], ("f",))
+        assert m.fabricated == 1 and m.page_ok == 0.0
+

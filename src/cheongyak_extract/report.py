@@ -43,7 +43,7 @@ def _norm(s: str) -> str:
 
 
 def _grounded(evidence: str | None, text: str) -> bool:
-    return evidence is not None and _norm(evidence) in _norm(text)
+    return not _empty(evidence) and _norm(evidence) in _norm(text)
 
 
 def _rate(num: int, den: int) -> float | None:
