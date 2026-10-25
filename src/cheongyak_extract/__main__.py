@@ -15,7 +15,7 @@ def main(argv: list[str] | None = None) -> int:
 
     with make_client() as client:
         result = run(args.n, client, Path("data/raw"), Path("reports/skeleton.md"))
-    # 정답 있음이 0인 필드가 있으면 빈 칸 100%가 공허하게 참이다. 통과로 치지 않는다.
+    # 정답 있음이 0이면 정확도·빈 칸이 `—`로 나와 stub 동작을 확인할 수 없다. 통과로 치지 않는다.
     no_truth = [m.field for m in result.metrics if m.with_truth == 0]
     if no_truth:
         print(f"정답 있음이 0인 필드: {', '.join(no_truth)}", file=sys.stderr)
