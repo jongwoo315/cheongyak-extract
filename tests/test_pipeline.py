@@ -98,3 +98,11 @@ def test_run_skips_announcement_when_pdf_is_corrupt(tmp_path):
         result = run(3, client, tmp_path / "raw", tmp_path / "r.md", pause=lambda s: None)
     assert result.processed == 0
     assert len(result.skipped) == 3 and "PDF" in result.skipped[0][1]
+
+
+def test_run_pauses_two_seconds_before_every_request(tmp_path):
+    pauses: list[float] = []
+    with httpx.Client(transport=make_transport(["a.pdf"] * 3)) as client:
+        run(3, client, tmp_path / "raw", tmp_path / "r.md", pause=pauses.append)
+    # 목록 1회 + 공고마다 (상세 1회 + PDF 1회)
+    assert pauses == [2] * (1 + 3 * 2)
