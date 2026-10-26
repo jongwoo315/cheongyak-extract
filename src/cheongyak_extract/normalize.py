@@ -28,10 +28,33 @@ def _month(v: str) -> str | None:
     return None
 
 
+_LEGAL_FORM = re.compile(r"\(주\)|㈜|주식회사")
+_COUNT = re.compile(r"(\d[\d,]*)\s*세대")
+
+
+def _company(v: str) -> str | None:
+    # 회사가 여럿이면 쉼표나 줄바꿈으로 나뉜다. 순서만 다른 것은 같게 본다
+    names = (re.sub(r"\s+", "", _LEGAL_FORM.sub("", n)) for n in re.split(r"[,\n]", v))
+    return ",".join(sorted(n for n in names if n)) or None
+
+
+def _count(v: str) -> str | None:
+    if m := _COUNT.search(v):
+        return m[1].replace(",", "")
+    return None
+
+
+def _address(v: str) -> str | None:
+    return re.sub(r"\s*([()])\s*", r"\1", " ".join(v.split()))
+
+
 KINDS: dict[str, Callable[[str], str | None]] = {
     "날짜": _date,
     "기간": _period,
     "월": _month,
+    "회사명": _company,
+    "세대수": _count,
+    "주소": _address,
 }
 
 
