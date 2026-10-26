@@ -103,7 +103,7 @@ def test_digits_around_a_match_keep_values_apart(field, a, b):
     assert normalize(field, a) != normalize(field, b)
 
 
-# 값이 둘 이상 읽히면 하나를 골라 같게 만들지 않는다 — 원본 비교로 떨어진다
+# 여럿 읽히거나, 일까지 적혔거나, 못 읽는 값은 하나를 골라 같게 만들지 않는다 — 원본 비교로 떨어진다
 @pytest.mark.parametrize(
     ("field", "a", "b"),
     [
