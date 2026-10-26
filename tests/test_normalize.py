@@ -51,3 +51,34 @@ def test_address_only_tidies_spaces_around_parens():
     a = "인천광역시 계양구 동양동 458-3번지 일원 (인천계양 테크노밸리 AC3블록)"
     b = "인천광역시  계양구 동양동 458-3번지 일원(인천계양 테크노밸리 AC3블록)"
     assert normalize("공급위치", a) == normalize("공급위치", b)
+
+
+def test_unreadable_value_falls_back_to_stripped_original():
+    assert normalize("모집공고일", "  미정  ") == "미정"
+    assert normalize("공급규모", " 해당 없음 ") == "해당 없음"
+
+
+def test_empty_value_stays_empty_and_unknown_field_is_only_stripped():
+    assert normalize("모집공고일", None) is None
+    assert normalize("모집공고일", "  ") is None
+    assert normalize("없는 필드", " 2026.11.11 ") == "2026.11.11"
+
+
+# 설계 §정규화 결과가 같아지면 안 되는 것
+@pytest.mark.parametrize(
+    ("field", "a", "b"),
+    [
+        ("당첨자 발표일", "2026-11-10", "2026-11-11"),
+        ("계약일", "2026-11-23 ~ 2026-11-25", "2026-11-23 ~ 2026-11-26"),
+        ("시행사", "반도건설", "반도종합건설"),
+        ("공급규모", "358세대", "385세대"),
+    ],
+)
+def test_different_values_stay_different(field, a, b):
+    assert normalize(field, a) != normalize(field, b)
+
+
+@pytest.mark.parametrize("field", FIELDS)
+def test_empty_never_equals_non_empty(field):
+    for filled in ("2026-11-10", "358세대", "반도건설"):
+        assert normalize(field, "") != normalize(field, filled)

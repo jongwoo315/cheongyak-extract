@@ -2,7 +2,7 @@ import json
 from pathlib import Path
 
 from cheongyak_extract import __main__ as cli
-from cheongyak_extract.measure import Pair, load_pairs, render, tally
+from cheongyak_extract.measure import Pair, load_pairs, measure_normalize, render, tally
 
 HTML = (Path(__file__).parent / "fixtures" / "detail.html").read_text(encoding="utf-8")
 
@@ -43,3 +43,20 @@ def test_measure_normalize_subcommand_writes_report(monkeypatch, tmp_path):
     raw, fixture, out = calls[0]
     assert (str(raw), str(out)) == ("data/raw", "reports/normalize.md")
     assert str(fixture) == "tests/fixtures/pdf_forms.json"
+
+
+def test_measure_normalize_counts_form_differences_as_matches(tmp_path):
+    raw = tmp_path / "raw" / "p1"
+    raw.mkdir(parents=True)
+    (raw / "detail.html").write_text(HTML, encoding="utf-8")
+    fixture = tmp_path / "forms.json"
+    forms = {"p1": {"모집공고일": {"value": "2026.10.23.(금)", "page": 1}}}
+    fixture.write_text(json.dumps(forms, ensure_ascii=False), encoding="utf-8")
+    md = measure_normalize(tmp_path / "raw", fixture, tmp_path / "out" / "normalize.md")
+    assert "정규화 전 0/8" in md and "정규화 후 1/8" in md
+    assert (tmp_path / "out" / "normalize.md").read_text(encoding="utf-8") == md
+
+
+def test_render_says_so_when_every_pair_matches():
+    md = render([Pair("p1", "f", "A", "A")], lambda f, v: v.strip())
+    assert "안 맞는 쌍 없음" in md
