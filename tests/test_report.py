@@ -178,3 +178,20 @@ def test_shape_errors_section_is_absent_when_nothing_is_broken():
     assert (
         render_shape_errors([Doc("d", {"f": "A"}, {"f": EMPTY}, ["p"], {"f": ex.NO_VALUE})]) == ""
     )
+
+
+def test_summary_denominator_counts_every_rule_that_dropped_a_given_value():
+    # 규칙 2·3·4는 LLM이 값을 줬다가 코드가 비운 칸이고, 응답 모양 오류·규칙 1·5는 아니다
+    def blanked(pbno, why):
+        return Doc(pbno, {"f": "A"}, {"f": EMPTY}, ["p"], {"f": why})
+
+    docs = [
+        blanked("a", ex.NO_EVIDENCE),
+        blanked("b", ex.BAD_PAGE),
+        blanked("c", ex.NOT_IN_PAGE),
+        blanked("d", ex.BAD_JSON),
+        blanked("e", ex.BAD_CELL),
+        blanked("f", ex.NO_KEY),
+        blanked("g", ex.NO_VALUE),
+    ]
+    assert "LLM이 값을 준 3칸 중 근거를 확인 못해 비운 칸 1 (33%)" in render_summary(docs, ("f",))
