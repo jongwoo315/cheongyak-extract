@@ -6,12 +6,20 @@ from pathlib import Path
 from typing import NamedTuple
 
 import httpx
-import pymupdf
 
 from cheongyak_extract.extract import FIELDS, Ask, extract
 from cheongyak_extract.fetch import LIST_URL, PAUSE_SECONDS, Skipped, download, parse_list
+from cheongyak_extract.llm import ContextExceeded
 from cheongyak_extract.pdf_text import pages
-from cheongyak_extract.report import Doc, FieldMetrics, metrics, render_markdown
+from cheongyak_extract.report import (
+    Doc,
+    FieldMetrics,
+    metrics,
+    render_markdown,
+    render_summary,
+    render_usage,
+    render_wrong,
+)
 from cheongyak_extract.truth import parse_truth
 
 
@@ -19,6 +27,47 @@ class Result(NamedTuple):
     metrics: list[FieldMetrics]
     processed: int
     skipped: list[tuple[str, str]]  # (pblancNo, 이유)
+
+
+class SkipDoc(Exception):
+    """이 공고만 건너뛴다. 메시지가 리포트에 적힌다."""
+
+
+def _analyze(pbno: str, out: Path, ask: Ask) -> Doc:
+    """out(data/raw/<pbno>/)의 detail.html·notice.pdf로 추출하고 Doc을 만든다."""
+    for name in ("detail.html", "notice.pdf"):
+        if not (out / name).exists():
+            raise SkipDoc(f"{name} 없음")
+    try:
+        text = pages(out / "notice.pdf")
+    except Exception as e:  # 열기·텍스트 뽑기 실패가 한 가지 예외가 아니다(#146 리뷰 13)
+        raise SkipDoc(f"PDF를 열 수 없음: {e}") from e
+    if not any(t.strip() for t in text):
+        raise SkipDoc("텍스트 없음(스캔 PDF로 보임)")
+    truth = parse_truth((out / "detail.html").read_text(encoding="utf-8"))
+    try:
+        got = extract(text, ask)
+    except ContextExceeded as e:
+        raise SkipDoc(f"컨텍스트 한도 초과: {e}") from e
+    return Doc(pbno, truth, got.fields, text, got.blanked, getattr(ask, "last_usage", None))
+
+
+def _report(
+    title: str, docs: list[Doc], skipped: list[tuple[str, str]], report_path: Path, ask: Ask
+) -> Result:
+    rows = metrics(docs, FIELDS)
+    md = f"# {title}\n\n공고 {len(docs)}건: {', '.join(d.pbno for d in docs)}\n\n"
+    if model := getattr(ask, "model", None):
+        md += f"모델: {model}\n\n"
+    md += render_markdown(rows) + "\n" + render_summary(docs, FIELDS)
+    md += "\n틀리게 채운 칸:\n\n" + render_wrong(docs, FIELDS)
+    md += "\n토큰:\n\n" + render_usage(docs)
+    if skipped:
+        md += "\n건너뛴 공고:\n\n" + "".join(f"- {pbno}: {why}\n" for pbno, why in skipped)
+    report_path.parent.mkdir(parents=True, exist_ok=True)
+    report_path.write_text(md, encoding="utf-8")
+    print(md)
+    return Result(rows, len(docs), skipped)
 
 
 def run(
@@ -47,19 +96,19 @@ def run(
             skipped.append((pbno, f"다운로드 실패: {e}"))
             continue
         try:
-            text = pages(out / "notice.pdf")
-        except pymupdf.FileDataError as e:
-            skipped.append((pbno, f"PDF를 열 수 없음: {e}"))
-            continue
-        truth = parse_truth((out / "detail.html").read_text(encoding="utf-8"))
-        docs.append(Doc(pbno, truth, extract(text, ask).fields, text))
+            docs.append(_analyze(pbno, out, ask))
+        except SkipDoc as e:
+            skipped.append((pbno, str(e)))
+    return _report("run 리포트", docs, skipped, report_path, ask)
 
-    rows = metrics(docs, FIELDS)
-    md = f"# skeleton 리포트\n\n공고 {len(docs)}건: {', '.join(d.pbno for d in docs)}\n\n"
-    md += render_markdown(rows)
-    if skipped:
-        md += "\n건너뛴 공고:\n\n" + "".join(f"- {pbno}: {why}\n" for pbno, why in skipped)
-    report_path.parent.mkdir(parents=True, exist_ok=True)
-    report_path.write_text(md, encoding="utf-8")
-    print(md)
-    return Result(rows, len(docs), skipped)
+
+def evaluate(pbnos: list[str], raw_dir: Path, ask: Ask, report_path: Path) -> Result:
+    """이미 받아 둔 data/raw/<pbno>/만 읽는다. 청약홈에 요청하지 않는다."""
+    docs: list[Doc] = []
+    skipped: list[tuple[str, str]] = []
+    for pbno in pbnos:
+        try:
+            docs.append(_analyze(pbno, raw_dir / pbno, ask))
+        except SkipDoc as e:
+            skipped.append((pbno, f"{raw_dir / pbno}: {e}"))
+    return _report("eval 리포트", docs, skipped, report_path, ask)
