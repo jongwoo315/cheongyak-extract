@@ -3,11 +3,24 @@
 from dataclasses import dataclass
 
 
+def _blank(s: str | None) -> bool:
+    return not (s or "").strip()
+
+
 @dataclass(frozen=True)
 class Extraction:
     value: str | None
     evidence: str | None
-    page: int | None
+    page: int | None  # 1부터
+
+    def __post_init__(self) -> None:
+        if _blank(self.value):
+            if not _blank(self.evidence) or self.page is not None:
+                raise ValueError("값이 없는데 근거나 쪽이 있다")
+        elif _blank(self.evidence) or self.page is None:
+            raise ValueError("값이 있는데 근거나 쪽이 없다")
+        elif self.page < 1:
+            raise ValueError(f"쪽은 1부터다: {self.page}")
 
 
 # 상세 HTML 표에서 한 칸 값으로 읽히는 필드. 정답(truth.py)과 같은 키를 쓴다.

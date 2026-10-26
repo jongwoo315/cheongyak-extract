@@ -1,10 +1,6 @@
-from cheongyak_extract.extract import FIELDS, Extraction, extract
+import pytest
 
-
-def test_stub_returns_empty_extraction_for_every_field():
-    out = extract(["아무 텍스트", "두 번째 쪽"])
-    assert tuple(out) == FIELDS
-    assert all(v == Extraction(None, None, None) for v in out.values())
+from cheongyak_extract.extract import FIELDS, Extraction
 
 
 def test_fields_are_the_eight_single_cell_values():
@@ -18,3 +14,27 @@ def test_fields_are_the_eight_single_cell_values():
         "시공사",
         "입주예정월",
     )
+
+
+def test_extraction_accepts_empty_and_filled_forms():
+    assert Extraction(None, None, None).value is None
+    assert Extraction("358세대", "일반분양 358세대", 7).page == 7
+
+
+@pytest.mark.parametrize(
+    "args",
+    [
+        (None, "근거", None),  # 값 없음 + 근거
+        (None, None, 3),  # 값 없음 + 쪽
+        ("", "근거", 1),  # 빈 문자열도 값 없음
+        ("  ", None, 1),
+        ("값", None, 1),  # 값 있음 + 근거 없음
+        ("값", "  ", 1),
+        ("값", "근거", None),  # 값 있음 + 쪽 없음
+        ("값", "근거", 0),  # 쪽 < 1
+        ("값", "근거", -2),
+    ],
+)
+def test_extraction_rejects_contradictions(args):
+    with pytest.raises(ValueError):
+        Extraction(*args)

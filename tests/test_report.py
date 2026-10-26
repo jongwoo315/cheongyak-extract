@@ -51,16 +51,9 @@ def test_render_markdown_formats_percentages():
     assert "| f | 1 | 0% | 100% | 0 | 0 | — |" in render_markdown([m])
 
 
-def test_empty_evidence_counts_as_fabricated():
-    for evidence in ("", "  "):
-        (m,) = metrics([doc("A", Extraction("A", evidence, 1), ["foo"])], ("f",))
-        assert m.fabricated == 1 and m.page_ok == 0.0
-
-
-def test_page_out_of_range_is_not_ok_and_does_not_crash():
-    for page in (0, 3):
-        (m,) = metrics([doc("A", Extraction("A", "foo", page), ["foo", "bar"])], ("f",))
-        assert m.page_ok == 0.0
+def test_page_beyond_last_page_is_not_ok_and_does_not_crash():
+    (m,) = metrics([doc("A", Extraction("A", "foo", 3), ["foo", "bar"])], ("f",))
+    assert m.page_ok == 0.0
 
 
 def test_accuracy_compares_normalized_forms_of_both_sides():
