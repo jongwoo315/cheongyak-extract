@@ -37,7 +37,8 @@ compare + report (필드별 지표 표)       →  stdout + 리포트 파일
 
 extract는 문서 전체를 `<page n>` 표시와 함께 LLM에 넣고 8개 필드의 값·근거 문장·쪽 번호를 받는다.
 근거 문장이 그 쪽 텍스트에 없거나, 값·근거·쪽 중 하나라도 없거나, 쪽 번호가 범위 밖이면 그 칸을 비운다.
-비운 이유는 리포트의 「근거 확인 못해 비움」 열에 센다. 설계: [docs/plans/147-1026-design-llm-extract.md](docs/plans/147-1026-design-llm-extract.md)
+리포트의 「근거 확인 못해 비움」 열은 그중 근거 문장이 그 쪽에 없어 비운 칸(정답 있는 칸만)을 센다.
+응답 모양이 깨져 비운 칸은 따로 절로 나온다. 설계: [docs/plans/147-1026-design-llm-extract.md](docs/plans/147-1026-design-llm-extract.md)
 
 ## 현재 상태
 
