@@ -1,4 +1,4 @@
-"""비교 직전에 정답과 추출값을 같은 꼴로 맞춘다. 종류별 규칙은 설계 문서 §설계 결정."""
+"""비교 직전에 정답과 추출값을 같은 꼴로 맞춘다. 종류 목록은 설계 문서 §설계 결정, 세부 규칙은 아래 함수와 tests/test_normalize.py."""
 
 import re
 from collections.abc import Callable
