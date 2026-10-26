@@ -4,6 +4,7 @@ from cheongyak_extract.report import (
     Doc,
     metrics,
     render_markdown,
+    render_shape_errors,
     render_summary,
     render_usage,
     render_wrong,
@@ -156,3 +157,24 @@ def test_summary_counts_cells_and_ungrounded_rate_over_values_the_llm_gave():
     md = render_summary(docs, ("f",))
     assert "정답 있는 칸 4 · 맞음 1 · 비움 2 · 틀리게 채움 1" in md
     assert "LLM이 값을 준 3칸 중 근거를 확인 못해 비운 칸 1 (33%)" in md
+
+
+def test_shape_errors_list_only_cells_blanked_for_a_broken_response():
+    docs = [
+        Doc("a", {"f": "A"}, {"f": EMPTY}, ["p"], {"f": ex.BAD_JSON}),
+        Doc("b", {"f": "A"}, {"f": EMPTY}, ["p"], {"f": ex.NO_KEY}),
+        Doc("c", {"f": "A"}, {"f": EMPTY}, ["p"], {"f": ex.BAD_CELL}),
+        Doc("d", {"f": "A"}, {"f": EMPTY}, ["p"], {"f": ex.NO_VALUE}),  # LLM이 비움
+        Doc("e", {"f": "A"}, {"f": EMPTY}, ["p"], {"f": ex.NOT_IN_PAGE}),  # 근거 규칙
+    ]
+    md = render_shape_errors(docs)
+    assert f"| a | f | {ex.BAD_JSON} |" in md
+    assert f"| b | f | {ex.NO_KEY} |" in md
+    assert f"| c | f | {ex.BAD_CELL} |" in md
+    assert "| d |" not in md and "| e |" not in md
+
+
+def test_shape_errors_section_is_absent_when_nothing_is_broken():
+    assert (
+        render_shape_errors([Doc("d", {"f": "A"}, {"f": EMPTY}, ["p"], {"f": ex.NO_VALUE})]) == ""
+    )

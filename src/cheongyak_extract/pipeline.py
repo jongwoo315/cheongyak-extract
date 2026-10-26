@@ -16,6 +16,7 @@ from cheongyak_extract.report import (
     FieldMetrics,
     metrics,
     render_markdown,
+    render_shape_errors,
     render_summary,
     render_usage,
     render_wrong,
@@ -63,6 +64,7 @@ def _report(
         md += f"모델: {model}\n\n"
     md += render_markdown(rows) + "\n" + render_summary(docs, FIELDS)
     md += "\n틀리게 채운 칸:\n\n" + render_wrong(docs, FIELDS)
+    md += render_shape_errors(docs)
     md += "\n토큰:\n\n" + render_usage(docs)
     if skipped:
         md += "\n건너뛴 공고:\n\n" + "".join(f"- {pbno}: {why}\n" for pbno, why in skipped)

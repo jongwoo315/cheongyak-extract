@@ -258,3 +258,14 @@ def test_unusable_llm_response_skips_only_that_announcement(tmp_path):
     ((pbno, why),) = result.skipped
     assert pbno == "A1" and "응답이 끝나지 않음" in why
     assert "공고 1건: B2" in out.read_text(encoding="utf-8")
+
+
+def test_report_says_when_a_response_was_not_json(tmp_path):
+    raw = tmp_path / "raw"
+    make_raw(raw, "A1", make_pdf_bytes())
+    out = tmp_path / "e.md"
+    result = evaluate(["A1"], raw, lambda prompt: "JSON이 아님", out)
+    assert result.processed == 1  # 건너뛴 공고가 아니라 8칸 전부 비운 공고다
+    text = out.read_text(encoding="utf-8")
+    assert "응답 모양이 깨져 비운 칸" in text
+    assert "| A1 | 공급규모 | 응답이 JSON 객체가 아님 |" in text

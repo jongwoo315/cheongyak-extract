@@ -3,9 +3,12 @@
 from dataclasses import dataclass, field
 
 from cheongyak_extract.extract import (
+    BAD_CELL,
+    BAD_JSON,
     BAD_PAGE,
     EMPTY,
     NO_EVIDENCE,
+    NO_KEY,
     NOT_IN_PAGE,
     Extraction,
     Usage,
@@ -27,6 +30,8 @@ COLUMNS = (
 
 # 근거 규칙(2·3·4)으로 비운 칸은 LLM이 값을 줬다가 코드가 비운 칸이다
 _GAVE_THEN_BLANKED = (NO_EVIDENCE, BAD_PAGE, NOT_IN_PAGE)
+# 응답 모양이 깨져 비운 칸. LLM이 일부러 비운 것도, 근거 규칙으로 비운 것도 아니다
+_SHAPE_ERRORS = (BAD_JSON, BAD_CELL, NO_KEY)
 
 
 @dataclass(frozen=True)
@@ -154,6 +159,14 @@ def render_wrong(docs: list[Doc], fields: tuple[str, ...]) -> str:
     if not rows:
         return "틀리게 채운 칸 없음\n"
     return _table(("공고", "필드", "정답", "추출값", "근거", "쪽"), rows)
+
+
+def render_shape_errors(docs: list[Doc]) -> str:
+    """응답 모양이 깨져 비운 칸. LLM이 비운 칸과 섞여 보이지 않게 한다. 없으면 빈 문자열."""
+    rows = [(d.pbno, f, why) for d in docs for f, why in d.blanked.items() if why in _SHAPE_ERRORS]
+    if not rows:
+        return ""
+    return "\n응답 모양이 깨져 비운 칸:\n\n" + _table(("공고", "필드", "이유"), rows)
 
 
 def render_usage(docs: list[Doc]) -> str:
