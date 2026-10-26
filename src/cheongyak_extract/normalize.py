@@ -8,6 +8,8 @@ from cheongyak_extract.extract import KIND
 _DATE = re.compile(r"(?<!\d)(\d{4})\s*[-.]\s*(\d{1,2})\s*[-.]\s*(\d{1,2})(?!\d)")
 # 끝 연도를 생략한 범위(2026.11.10~11.11)는 날짜 하나로 읽지 않는다
 _OPEN_DATE_RANGE = re.compile(r"~\s*\d{1,2}\s*[.-]\s*\d{1,2}")
+# 끝 연도를 생략한 월 범위(2029년 8월~9월)는 월 하나로 읽지 않는다
+_OPEN_MONTH_RANGE = re.compile(r"~\s*\d{1,2}(?!\d)")
 # 일까지 적힌 날짜(2029.08.15)는 월로 읽지 않는다
 _MONTH = re.compile(r"(?<!\d)(\d{4})\s*(?:[-.]|년)\s*(\d{1,2})(?!\d)(?!\s*[-.]\s*\d)")
 
@@ -29,7 +31,7 @@ def _period(v: str) -> str | None:
 
 def _month(v: str) -> str | None:
     found = _MONTH.findall(v)
-    if len(found) != 1 or re.search(r"월\s*\d{1,2}\s*일", v):  # 범위·일까지 적힌 날짜
+    if len(found) != 1 or re.search(r"월\s*\d{1,2}\s*일", v) or _OPEN_MONTH_RANGE.search(v):  # 범위·일까지 적힌 날짜
         return None
     y, m = found[0]
     return f"{y}-{int(m):02d}"
