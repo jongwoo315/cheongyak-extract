@@ -175,3 +175,11 @@ def test_malformed_cell_is_blank_and_does_not_crash(bad):
     out = run(respond(계약일=bad))
     assert out.fields["계약일"] == Extraction(None, None, None)
     assert "계약일" in out.blanked
+
+
+def test_error_raised_by_ask_is_not_swallowed_as_bad_json():
+    def ask(prompt: str) -> str:
+        raise json.JSONDecodeError("캐시가 깨짐", "{", 1)
+
+    with pytest.raises(json.JSONDecodeError):
+        ex.extract(["p"], ask)

@@ -114,3 +114,14 @@ def test_model_comes_from_env_with_default(monkeypatch):
     assert llm.model_from_env() == "gpt-5.4-mini"
     monkeypatch.setenv("OPENAI_EXTRACT_MODEL", "gpt-5.5")
     assert llm.model_from_env() == "gpt-5.5"
+
+
+@pytest.mark.parametrize("broken", ["{trunc", "{}", '{"response": 1, "input_tokens": "x"}', "[]"])
+def test_broken_cache_file_is_a_miss_and_is_rewritten(tmp_path, broken):
+    key = hashlib.sha256(b"m1\np").hexdigest()
+    (tmp_path / f"{key}.json").write_text(broken, encoding="utf-8")
+    client = FakeClient(usage=(120, 7))
+    ask = llm.make_ask("m1", tmp_path, client)
+    assert ask("p") == '{"ok": 1}' and len(client.calls) == 1
+    assert ask.last_usage == Usage(120, 7)
+    assert llm.make_ask("m1", tmp_path)("p") == '{"ok": 1}'  # 다시 쓴 캐시는 읽힌다

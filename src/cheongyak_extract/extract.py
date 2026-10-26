@@ -167,8 +167,9 @@ def _check(raw: object, pages: list[str]) -> tuple[Extraction, str | None]:
 
 def extract(pages: list[str], ask: Ask) -> Extracted:
     """LLM을 한 번 불러 8개 필드를 받고, 근거를 못 찾는 칸은 비운다."""
+    raw = ask(build_prompt(pages))  # 호출 쪽 예외를 응답 모양 오류로 삼키지 않는다
     try:
-        data = json.loads(ask(build_prompt(pages)))
+        data = json.loads(raw)
     except json.JSONDecodeError:
         data = None
     if not isinstance(data, dict):

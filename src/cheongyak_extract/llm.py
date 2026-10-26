@@ -37,9 +37,15 @@ class LlmAsk:
         key = hashlib.sha256(f"{self.model}\n{prompt}".encode()).hexdigest()
         path = self.cache_dir / f"{key}.json"
         if path.exists():  # 캐시 적중에는 클라이언트(와 API 키)가 필요 없다
-            hit = json.loads(path.read_text(encoding="utf-8"))
-            self.last_usage = Usage(hit["input_tokens"], hit["output_tokens"])
-            return hit["response"]
+            try:
+                hit = json.loads(path.read_text(encoding="utf-8"))
+                usage = Usage(hit["input_tokens"], hit["output_tokens"])
+                response = hit["response"]
+            except (ValueError, KeyError, TypeError):  # 깨진 캐시는 미스로 보고 다시 부른다
+                pass
+            else:
+                self.last_usage = usage
+                return response
 
         if self._client is None:
             self._client = openai.OpenAI()
