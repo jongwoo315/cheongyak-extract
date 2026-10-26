@@ -68,7 +68,8 @@ class LlmAsk:
             raise
         status = getattr(resp, "status", "completed")
         if status != "completed":  # 잘린 응답을 캐시하면 같은 실패가 계속 재생된다
-            raise BadResponse(f"응답이 끝나지 않음: {status}")
+            why = getattr(resp, "error", None) or getattr(resp, "incomplete_details", None)
+            raise BadResponse(f"응답이 끝나지 않음: {status}" + (f" ({why})" if why else ""))
         if not (resp.output_text or "").strip():  # 거부(refusal)는 completed인데 본문이 비어 있다
             raise BadResponse("응답 본문이 비어 있음")
         self.last_usage = Usage(resp.usage.input_tokens, resp.usage.output_tokens)

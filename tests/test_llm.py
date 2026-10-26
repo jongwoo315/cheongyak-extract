@@ -125,3 +125,12 @@ def test_broken_cache_file_is_a_miss_and_is_rewritten(tmp_path, broken):
     assert ask("p") == '{"ok": 1}' and len(client.calls) == 1
     assert ask.last_usage == Usage(120, 7)
     assert llm.make_ask("m1", tmp_path)("p") == '{"ok": 1}'  # 다시 쓴 캐시는 읽힌다
+
+
+def test_unfinished_response_message_carries_the_reason(tmp_path):
+    reply = SimpleNamespace(
+        output_text="", status="failed", error=SimpleNamespace(code="rate_limit_exceeded")
+    )
+    client = SimpleNamespace(responses=SimpleNamespace(create=lambda **kw: reply))
+    with pytest.raises(llm.BadResponse, match="failed.*rate_limit_exceeded"):
+        llm.make_ask("m1", tmp_path, client)("p")
