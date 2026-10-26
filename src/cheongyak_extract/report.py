@@ -3,6 +3,7 @@
 from dataclasses import dataclass
 
 from cheongyak_extract.extract import Extraction
+from cheongyak_extract.normalize import normalize
 
 COLUMNS = (
     "필드",
@@ -60,7 +61,7 @@ def metrics(docs: list[Doc], fields: tuple[str, ...]) -> list[FieldMetrics]:
                 filled_empty += not _empty(ex.value)
             else:
                 with_truth += 1
-                correct += not _empty(ex.value) and ex.value.strip() == truth.strip()
+                correct += not _empty(ex.value) and normalize(f, ex.value) == normalize(f, truth)
                 blank += _empty(ex.value)
             if not _empty(ex.value) and not _grounded(ex.evidence, "\n".join(d.pages)):
                 fabricated += 1

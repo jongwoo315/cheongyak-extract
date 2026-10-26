@@ -1,4 +1,4 @@
-from cheongyak_extract.extract import Extraction
+from cheongyak_extract.extract import FIELDS, Extraction
 from cheongyak_extract.report import Doc, metrics, render_markdown
 
 EMPTY = Extraction(None, None, None)
@@ -25,7 +25,7 @@ def test_metrics_follow_design_definitions():
     assert m.page_ok == 1 / 3
 
 
-def test_compare_strips_but_does_not_normalize():
+def test_unknown_field_is_only_stripped():
     (m,) = metrics([doc("2026-11-11", Extraction(" 2026-11-11 ", "e", 1), ["e"])], ("f",))
     assert m.accuracy == 1.0
     (m,) = metrics([doc("2026-11-11", Extraction("2026.11.11", "e", 1), ["e"])], ("f",))
@@ -57,8 +57,26 @@ def test_empty_evidence_counts_as_fabricated():
         assert m.fabricated == 1 and m.page_ok == 0.0
 
 
-
 def test_page_out_of_range_is_not_ok_and_does_not_crash():
     for page in (0, 3):
         (m,) = metrics([doc("A", Extraction("A", "foo", page), ["foo", "bar"])], ("f",))
         assert m.page_ok == 0.0
+
+
+def test_accuracy_compares_normalized_forms_of_both_sides():
+    truth = {"모집공고일": "2026-10-23 (헤럴드경제신문)", "시행사": "(주)반도건설"}
+    ex = {
+        "모집공고일": Extraction("2026.10.23.(금)", "e", 1),
+        "시행사": Extraction("반도종합건설", "e", 1),
+    }
+    docs = [Doc("x", truth, ex, ["e"])]
+    date, company = metrics(docs, ("모집공고일", "시행사"))
+    assert date.accuracy == 1.0
+    assert company.accuracy == 0.0
+
+
+def test_stub_extraction_stays_at_zero_accuracy_and_full_blank():
+    truth = {f: "2026-11-10" for f in FIELDS}
+    stub = {f: EMPTY for f in FIELDS}
+    rows = metrics([Doc("x", truth, stub, ["p"])], FIELDS)
+    assert all(m.accuracy == 0.0 and m.blank == 1.0 for m in rows)
