@@ -97,3 +97,29 @@ def test_empty_never_equals_non_empty(field):
 )
 def test_digits_around_a_match_keep_values_apart(field, a, b):
     assert normalize(field, a) != normalize(field, b)
+
+
+# 값이 둘 이상 읽히면 하나를 골라 같게 만들지 않는다 — 원본 비교로 떨어진다
+@pytest.mark.parametrize(
+    ("field", "a", "b"),
+    [
+        ("모집공고일", "2026-10-23", "2026-10-23 ~ 2026-10-30"),
+        ("모집공고일", "2026-11-10", "2026-11-10 2026-11-11"),
+        ("입주예정월", "2029.08", "2029년 8월 ~ 2029년 12월"),
+        ("입주예정월", "2029.08", "2029년 8월 15일"),
+        ("공급규모", "358세대", "358세대, 400세대"),
+        ("공급규모", "100세대", "특별공급 100세대 총 358세대"),
+        ("공급규모", "358세대", "3,58세대"),
+    ],
+)
+def test_ambiguous_value_is_not_collapsed_to_one_candidate(field, a, b):
+    assert normalize(field, a) != normalize(field, b)
+
+
+def test_same_number_repeated_is_still_one_count():
+    assert normalize("공급규모", "358세대 (일반 358세대)") == "358"
+
+
+def test_trailing_text_after_one_month_is_ignored():
+    raw = "2029년 08월 예정(정확한 입주일자는 추후 통보함)"
+    assert normalize("입주예정월", raw) == "2029-08"

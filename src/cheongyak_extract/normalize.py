@@ -11,9 +11,11 @@ _MONTH = re.compile(r"(?<!\d)(\d{4})\s*(?:[-.]|년)\s*(\d{1,2})(?!\d)(?!\s*[-.]\
 
 
 def _date(v: str) -> str | None:
-    if m := _DATE.search(v):
-        return f"{m[1]}-{int(m[2]):02d}-{int(m[3]):02d}"
-    return None
+    found = _DATE.findall(v)
+    if len(found) != 1:  # 신문명·URL은 떼도 되지만 둘째 날짜는 값이다
+        return None
+    y, m, d = found[0]
+    return f"{y}-{int(m):02d}-{int(d):02d}"
 
 
 def _period(v: str) -> str | None:
@@ -24,13 +26,15 @@ def _period(v: str) -> str | None:
 
 
 def _month(v: str) -> str | None:
-    if m := _MONTH.search(v):
-        return f"{m[1]}-{int(m[2]):02d}"
-    return None
+    found = _MONTH.findall(v)
+    if len(found) != 1 or re.search(r"월\s*\d{1,2}\s*일", v):  # 범위·일까지 적힌 날짜
+        return None
+    y, m = found[0]
+    return f"{y}-{int(m):02d}"
 
 
 _LEGAL_FORM = re.compile(r"\(주\)|㈜|주식회사")
-_COUNT = re.compile(r"(\d[\d,]*)\s*세대")
+_COUNT = re.compile(r"(?<![\d,])(\d{1,3}(?:,\d{3})+|\d+)\s*세대")
 
 
 def _company(v: str) -> str | None:
@@ -40,9 +44,8 @@ def _company(v: str) -> str | None:
 
 
 def _count(v: str) -> str | None:
-    if m := _COUNT.search(v):
-        return m[1].replace(",", "")
-    return None
+    found = {n.replace(",", "") for n in _COUNT.findall(v)}
+    return found.pop() if len(found) == 1 else None  # 세대수가 여럿 적힌 문장은 고르지 않는다
 
 
 def _address(v: str) -> str | None:
