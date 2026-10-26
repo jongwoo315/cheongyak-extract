@@ -47,6 +47,10 @@ def test_household_count(raw):
     assert normalize("공급규모", raw) == "358"
 
 
+def test_company_list_with_a_missing_name_stays_different():
+    assert normalize("시공사", "㈜가, ㈜나") != normalize("시공사", "㈜가")
+
+
 def test_address_only_tidies_spaces_around_parens():
     a = "인천광역시 계양구 동양동 458-3번지 일원 (인천계양 테크노밸리 AC3블록)"
     b = "인천광역시  계양구 동양동 458-3번지 일원(인천계양 테크노밸리 AC3블록)"
