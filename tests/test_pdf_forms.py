@@ -35,5 +35,6 @@ def test_every_value_is_on_its_page(pbno):
     for field, cell in FORMS[pbno].items():
         if cell["value"] is None:
             continue
+        assert 1 <= cell["page"] <= len(text), f"{pbno} {field} p{cell['page']} 쪽 범위 밖"
         page = text[cell["page"] - 1]
         assert _squeeze(cell["value"]) in _squeeze(page), f"{pbno} {field} p{cell['page']}"
