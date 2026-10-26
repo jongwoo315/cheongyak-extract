@@ -16,6 +16,10 @@ class ContextExceeded(Exception):
     """프롬프트가 모델 컨텍스트 한도를 넘었다. 그 공고만 건너뛴다."""
 
 
+class BadResponse(Exception):
+    """응답이 끝나지 않았거나 비어 있다(거부 등). 캐시하지 않고 그 공고만 건너뛴다."""
+
+
 def model_from_env() -> str:
     return os.environ.get("OPENAI_EXTRACT_MODEL") or DEFAULT_MODEL
 
@@ -58,10 +62,13 @@ class LlmAsk:
             raise
         status = getattr(resp, "status", "completed")
         if status != "completed":  # 잘린 응답을 캐시하면 같은 실패가 계속 재생된다
-            raise RuntimeError(f"응답이 끝나지 않음: {status}")
+            raise BadResponse(f"응답이 끝나지 않음: {status}")
+        if not (resp.output_text or "").strip():  # 거부(refusal)는 completed인데 본문이 비어 있다
+            raise BadResponse("응답 본문이 비어 있음")
         self.last_usage = Usage(resp.usage.input_tokens, resp.usage.output_tokens)
         self.cache_dir.mkdir(parents=True, exist_ok=True)
-        path.write_text(
+        tmp = path.with_suffix(".tmp")  # 쓰다 끊겨도 잘린 캐시가 남지 않게 한다
+        tmp.write_text(
             json.dumps(
                 {
                     "response": resp.output_text,
@@ -72,6 +79,7 @@ class LlmAsk:
             ),
             encoding="utf-8",
         )
+        os.replace(tmp, path)
         return resp.output_text
 
 

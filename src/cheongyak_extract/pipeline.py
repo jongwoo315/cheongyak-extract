@@ -9,7 +9,7 @@ import httpx
 
 from cheongyak_extract.extract import FIELDS, Ask, extract
 from cheongyak_extract.fetch import LIST_URL, PAUSE_SECONDS, Skipped, download, parse_list
-from cheongyak_extract.llm import ContextExceeded
+from cheongyak_extract.llm import BadResponse, ContextExceeded
 from cheongyak_extract.pdf_text import pages
 from cheongyak_extract.report import (
     Doc,
@@ -49,6 +49,8 @@ def _analyze(pbno: str, out: Path, ask: Ask) -> Doc:
         got = extract(text, ask)
     except ContextExceeded as e:
         raise SkipDoc(f"컨텍스트 한도 초과: {e}") from e
+    except BadResponse as e:  # 이 공고의 응답만 못 쓴다. 인증·한도 오류는 잡지 않고 멈춘다
+        raise SkipDoc(f"LLM 응답을 쓸 수 없음: {e}") from e
     return Doc(pbno, truth, got.fields, text, got.blanked, getattr(ask, "last_usage", None))
 
 

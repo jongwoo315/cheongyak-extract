@@ -8,7 +8,7 @@ import pymupdf
 from cheongyak_extract import pipeline
 from cheongyak_extract.extract import FIELDS, Usage
 from cheongyak_extract.fetch import LIST_URL
-from cheongyak_extract.llm import ContextExceeded
+from cheongyak_extract.llm import BadResponse, ContextExceeded
 from cheongyak_extract.pipeline import evaluate, run
 
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -239,3 +239,22 @@ def test_evaluate_skips_announcement_without_pdf_or_detail_and_says_why(tmp_path
     assert set(reasons) == {"NOPDF", "NODETAIL", "MISSING"}
     assert "notice.pdf" in reasons["NOPDF"] and "detail.html" in reasons["NODETAIL"]
     assert "건너뛴 공고" in out.read_text(encoding="utf-8")
+
+
+def test_unusable_llm_response_skips_only_that_announcement(tmp_path):
+    raw = tmp_path / "raw"
+    make_raw(raw, "A1", make_pdf_bytes())
+    make_raw(raw, "B2", make_pdf_bytes())
+    answers = iter([BadResponse("응답이 끝나지 않음: incomplete"), None])
+
+    def ask(prompt):
+        if (err := next(answers)) is not None:
+            raise err
+        return scale_ask(prompt)
+
+    out = tmp_path / "e.md"
+    result = evaluate(["A1", "B2"], raw, ask, out)
+    assert result.processed == 1
+    ((pbno, why),) = result.skipped
+    assert pbno == "A1" and "응답이 끝나지 않음" in why
+    assert "공고 1건: B2" in out.read_text(encoding="utf-8")

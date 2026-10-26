@@ -95,9 +95,18 @@ def test_other_api_errors_propagate(tmp_path):
 def test_unfinished_response_is_not_cached(tmp_path):
     client = FakeClient(status="incomplete")
     ask = llm.make_ask("m1", tmp_path, client)
-    with pytest.raises(RuntimeError, match="incomplete"):
+    with pytest.raises(llm.BadResponse, match="incomplete"):
         ask("p")
     assert not list(tmp_path.glob("*.json"))
+
+
+def test_empty_output_text_is_not_cached(tmp_path):
+    # 거부(refusal) 응답은 status가 completed인데 output_text가 비어 있다
+    client = FakeClient(text="")
+    ask = llm.make_ask("m1", tmp_path, client)
+    with pytest.raises(llm.BadResponse, match="비어"):
+        ask("p")
+    assert not list(tmp_path.glob("*"))
 
 
 def test_model_comes_from_env_with_default(monkeypatch):
