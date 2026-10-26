@@ -24,6 +24,8 @@ def test_fixture_has_24_pairs_over_eight_fields():
     assert len(FORMS) == 3
     for form in FORMS.values():
         assert tuple(form) == FIELDS
+        # 못 찾은 필드는 null로 두되 이유(note)를 적는다. null만 가득한 fixture가 통과하지 않게 한다
+        assert all(c["value"] is not None or c.get("note") for c in form.values())
 
 
 @pytest.mark.parametrize("pbno", FORMS)
