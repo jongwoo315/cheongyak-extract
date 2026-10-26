@@ -21,7 +21,7 @@ def load(pbno: str) -> tuple[str, dict]:
 
 
 def pages_from_evidence(body: dict) -> list[str]:
-    """근거가 있는 쪽까지 빈 쪽을 두고 각 쪽에 그 쪽의 근거 문장을 놓는다. 줄바꿈은 공백으로 바꾼다."""
+    """각 쪽에 그 쪽의 근거 문장을 놓는다. 줄바꿈은 공백으로 바꾼다."""
     last = max(c["page"] for c in body.values())
     pages = [""] * last
     for c in body.values():
