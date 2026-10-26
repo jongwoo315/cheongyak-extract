@@ -131,3 +131,9 @@ def test_same_number_repeated_is_still_one_count():
 def test_trailing_text_after_one_month_is_ignored():
     raw = "2029년 08월 예정(정확한 입주일자는 추후 통보함)"
     assert normalize("입주예정월", raw) == "2029-08"
+
+
+def test_neighboring_blocks_in_one_address_stay_different():
+    a = "인천광역시 계양구 동양동 458-3번지 일원 (인천계양 테크노밸리 공공주택지구 AC3블록)"
+    b = "인천광역시 계양구 동양동 458-3번지 일원 (인천계양 테크노밸리 공공주택지구 AC4블록)"
+    assert normalize("공급위치", a) != normalize("공급위치", b)
