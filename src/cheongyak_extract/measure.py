@@ -26,6 +26,8 @@ def _strip(field: str, value: str) -> str:
 
 def load_pairs(raw_dir: Path, fixture: Path, fields: tuple[str, ...] = FIELDS) -> list[Pair]:
     forms = json.loads(fixture.read_text(encoding="utf-8"))
+    if not forms:  # 빈 fixture가 「0/0, 안 맞는 쌍 없음」으로 깨끗해 보이지 않게 한다
+        raise ValueError(f"모의 추출값이 비어 있다: {fixture}")
     pairs = []
     for pbno, form in forms.items():
         truth = parse_truth((raw_dir / pbno / "detail.html").read_text(encoding="utf-8"))

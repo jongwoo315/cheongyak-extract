@@ -1,6 +1,8 @@
 import json
 from pathlib import Path
 
+import pytest
+
 from cheongyak_extract import __main__ as cli
 from cheongyak_extract.measure import Pair, load_pairs, measure_normalize, render, tally
 
@@ -76,3 +78,10 @@ def test_load_pairs_reads_optional_note(tmp_path):
     fixture.write_text(json.dumps({"p1": {"공급규모": cell}}, ensure_ascii=False), encoding="utf-8")
     (pair,) = load_pairs(tmp_path / "raw", fixture, fields=("공급규모",))
     assert pair.note == "메모"
+
+
+def test_load_pairs_rejects_an_empty_fixture(tmp_path):
+    fixture = tmp_path / "forms.json"
+    fixture.write_text("{}", encoding="utf-8")
+    with pytest.raises(ValueError):
+        load_pairs(tmp_path, fixture)
