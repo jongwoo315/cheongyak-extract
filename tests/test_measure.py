@@ -5,8 +5,11 @@ import pytest
 
 from cheongyak_extract import __main__ as cli
 from cheongyak_extract.measure import Pair, load_pairs, measure_normalize, render, tally
+from cheongyak_extract.normalize import normalize
 
 HTML = (Path(__file__).parent / "fixtures" / "detail.html").read_text(encoding="utf-8")
+RAW = Path(__file__).parent.parent / "data" / "raw"
+FORMS = Path(__file__).parent / "fixtures" / "pdf_forms.json"
 
 
 def test_tally_counts_strip_equal_pairs():
@@ -85,3 +88,13 @@ def test_load_pairs_rejects_an_empty_fixture(tmp_path):
     fixture.write_text("{}", encoding="utf-8")
     with pytest.raises(ValueError):
         load_pairs(tmp_path, fixture)
+
+
+def test_real_fixture_matches_more_pairs_after_normalizing_than_before():
+    if not (RAW / "2026000530" / "detail.html").exists():
+        pytest.skip("data/raw 없음")  # 정답 HTML이 커밋돼 있지 않아 CI에서는 못 돈다
+    pairs = load_pairs(RAW, FORMS)
+    before = tally(pairs, lambda f, v: v.strip())
+    after = tally(pairs, normalize)
+    assert len(pairs) == 24
+    assert after >= 22 and after > before  # plan 실패 징후 1의 「통과」 구간
