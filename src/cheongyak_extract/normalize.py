@@ -1,4 +1,7 @@
-"""비교 직전에 정답과 추출값을 같은 꼴로 맞춘다. 종류 목록은 설계 문서 §설계 결정, 세부 규칙은 아래 함수와 tests/test_normalize.py."""
+"""비교 직전에 정답과 추출값을 같은 꼴로 맞춘다.
+
+종류 목록은 설계 문서 §설계 결정, 세부 규칙은 아래 함수와 tests/test_normalize.py.
+"""
 
 import re
 from collections.abc import Callable
@@ -31,7 +34,8 @@ def _period(v: str) -> str | None:
 
 def _month(v: str) -> str | None:
     found = _MONTH.findall(v)
-    if len(found) != 1 or re.search(r"월\s*\d{1,2}\s*일", v) or _OPEN_MONTH_RANGE.search(v):  # 범위·일까지 적힌 날짜
+    # 범위·일까지 적힌 날짜
+    if len(found) != 1 or re.search(r"월\s*\d{1,2}\s*일", v) or _OPEN_MONTH_RANGE.search(v):
         return None
     y, m = found[0]
     return f"{y}-{int(m):02d}"
