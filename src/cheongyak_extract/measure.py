@@ -17,6 +17,7 @@ class Pair(NamedTuple):
     field: str
     truth: str | None
     mock: str | None
+    note: str | None = None  # 사람이 적은 원인. fixture 칸의 `note`
 
 
 def _strip(field: str, value: str) -> str:
@@ -28,7 +29,9 @@ def load_pairs(raw_dir: Path, fixture: Path, fields: tuple[str, ...] = FIELDS) -
     pairs = []
     for pbno, form in forms.items():
         truth = parse_truth((raw_dir / pbno / "detail.html").read_text(encoding="utf-8"))
-        pairs += [Pair(pbno, f, truth[f], (form.get(f) or {}).get("value")) for f in fields]
+        for f in fields:
+            cell = form.get(f) or {}
+            pairs.append(Pair(pbno, f, truth[f], cell.get("value"), cell.get("note")))
     return pairs
 
 
@@ -55,11 +58,12 @@ def render(pairs: list[Pair], after: Norm) -> str:
     if not rows:
         md += "\n안 맞는 쌍 없음\n"
     else:
-        md += "\n안 맞는 쌍:\n\n| 공고 | 필드 | 정답 | 모의값 | 정규형(정답) | 정규형(모의값) |\n"
-        md += "| --- | --- | --- | --- | --- | --- |\n"
+        head = ("공고", "필드", "정답", "모의값", "정규형(정답)", "정규형(모의값)", "비고")
+        md += "\n안 맞는 쌍:\n\n| " + " | ".join(head) + " |\n"
+        md += "|" + " --- |" * len(head) + "\n"
         for p in rows:
             norm = [after(p.field, v) if v is not None else None for v in (p.truth, p.mock)]
-            cells = (p.pbno, p.field, p.truth, p.mock, *norm)
+            cells = (p.pbno, p.field, p.truth, p.mock, *norm, p.note)
             md += "| " + " | ".join(_cell(c) for c in cells) + " |\n"
     return md
 

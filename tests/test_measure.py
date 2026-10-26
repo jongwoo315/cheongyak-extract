@@ -32,7 +32,7 @@ def test_render_shows_before_and_after_and_lists_mismatches():
     pairs = [Pair("p1", "f", "A", "A"), Pair("p1", "g", "B", "b")]
     md = render(pairs, lambda f, v: v.strip())
     assert "정규화 전 1/2" in md and "정규화 후 1/2" in md
-    assert "| p1 | g | B | b | B | b |" in md  # 정답·모의값·두 정규형
+    assert "| p1 | g | B | b | B | b | — |" in md  # 정답·모의값·두 정규형·비고
     assert "| p1 | f |" not in md  # 맞은 쌍은 목록에 없다
 
 
@@ -60,3 +60,19 @@ def test_measure_normalize_counts_form_differences_as_matches(tmp_path):
 def test_render_says_so_when_every_pair_matches():
     md = render([Pair("p1", "f", "A", "A")], lambda f, v: v.strip())
     assert "안 맞는 쌍 없음" in md
+
+
+def test_note_in_fixture_is_shown_next_to_the_mismatch():
+    pairs = [Pair("p1", "g", "B", "b", note="정답 쪽 차이")]
+    assert "| p1 | g | B | b | B | b | 정답 쪽 차이 |" in render(pairs, lambda f, v: v.strip())
+
+
+def test_load_pairs_reads_optional_note(tmp_path):
+    raw = tmp_path / "raw" / "p1"
+    raw.mkdir(parents=True)
+    (raw / "detail.html").write_text(HTML, encoding="utf-8")
+    fixture = tmp_path / "forms.json"
+    cell = {"value": "10세대", "page": 3, "note": "메모"}
+    fixture.write_text(json.dumps({"p1": {"공급규모": cell}}, ensure_ascii=False), encoding="utf-8")
+    (pair,) = load_pairs(tmp_path / "raw", fixture, fields=("공급규모",))
+    assert pair.note == "메모"
