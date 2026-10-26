@@ -1,6 +1,6 @@
 import pytest
 
-from cheongyak_extract.extract import FIELDS, Extraction
+from cheongyak_extract.extract import FIELDS, Extraction, grounded
 
 
 def test_fields_are_the_eight_single_cell_values():
@@ -38,3 +38,16 @@ def test_extraction_accepts_empty_and_filled_forms():
 def test_extraction_rejects_contradictions(args):
     with pytest.raises(ValueError):
         Extraction(*args)
+
+
+def test_grounded_ignores_all_whitespace_on_both_sides():
+    page = "계약일 2026.11.23 ~ 2026.11.29\n입주"
+    assert grounded("2026.11.23~\n2026.11.29", page)  # 줄이 끊긴 근거, 공백이 있는 쪽
+    assert grounded("계약일\u00a02026.11.23 ~ 2026.11.29", page)
+
+
+def test_grounded_is_false_when_text_differs_or_evidence_is_empty():
+    assert not grounded("2026.11.30", "2026.11.29")
+    assert not grounded("", "아무 텍스트")
+    assert not grounded(None, "아무 텍스트")
+    assert not grounded("   ", "아무 텍스트")

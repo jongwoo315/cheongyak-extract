@@ -1,5 +1,6 @@
 """공고문 쪽별 텍스트에서 필드를 뽑는다."""
 
+import re
 from dataclasses import dataclass
 
 
@@ -21,6 +22,17 @@ class Extraction:
             raise ValueError("값이 있는데 근거나 쪽이 없다")
         elif self.page < 1:
             raise ValueError(f"쪽은 1부터다: {self.page}")
+
+
+def _squash(s: str) -> str:
+    return re.sub(r"\s+", "", s)
+
+
+def grounded(evidence: str | None, text: str) -> bool:
+    """근거 문장이 text 안에 있다. PDF는 줄이 끊기므로 양쪽 공백을 모두 지우고 비교한다."""
+    if _blank(evidence):
+        return False
+    return _squash(evidence) in _squash(text)
 
 
 # 상세 HTML 표에서 한 칸 값으로 읽히는 필드. 정답(truth.py)과 같은 키를 쓴다.

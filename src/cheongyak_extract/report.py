@@ -2,7 +2,7 @@
 
 from dataclasses import dataclass
 
-from cheongyak_extract.extract import Extraction
+from cheongyak_extract.extract import Extraction, grounded
 from cheongyak_extract.normalize import normalize
 
 COLUMNS = (
@@ -39,14 +39,6 @@ def _empty(v: str | None) -> bool:
     return not (v or "").strip()
 
 
-def _norm(s: str) -> str:
-    return " ".join(s.split())
-
-
-def _grounded(evidence: str | None, text: str) -> bool:
-    return not _empty(evidence) and _norm(evidence) in _norm(text)
-
-
 def _rate(num: int, den: int) -> float | None:
     return num / den if den else None
 
@@ -63,12 +55,12 @@ def metrics(docs: list[Doc], fields: tuple[str, ...]) -> list[FieldMetrics]:
                 with_truth += 1
                 correct += not _empty(ex.value) and normalize(f, ex.value) == normalize(f, truth)
                 blank += _empty(ex.value)
-            if not _empty(ex.value) and not _grounded(ex.evidence, "\n".join(d.pages)):
+            if not _empty(ex.value) and not grounded(ex.evidence, "\n".join(d.pages)):
                 fabricated += 1
             if ex.page is not None:
                 paged += 1
                 in_range = 1 <= ex.page <= len(d.pages)
-                page_ok += in_range and _grounded(ex.evidence, d.pages[ex.page - 1])
+                page_ok += in_range and grounded(ex.evidence, d.pages[ex.page - 1])
         out.append(
             FieldMetrics(
                 f,
