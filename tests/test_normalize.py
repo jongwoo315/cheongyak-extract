@@ -110,6 +110,8 @@ def test_digits_around_a_match_keep_values_apart(field, a, b):
         ("공급규모", "358세대", "358세대, 400세대"),
         ("공급규모", "100세대", "특별공급 100세대 총 358세대"),
         ("공급규모", "358세대", "3,58세대"),
+        ("당첨자 발표일", "2026-11-10", "2026.11.10~11.11"),
+        ("당첨자 발표일", "2026-11-10", "2026.11.10.(화) 10:00 ~ 11.11.(수)"),
     ],
 )
 def test_ambiguous_value_is_not_collapsed_to_one_candidate(field, a, b):

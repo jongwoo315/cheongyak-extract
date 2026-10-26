@@ -6,13 +6,15 @@ from collections.abc import Callable
 from cheongyak_extract.extract import KIND
 
 _DATE = re.compile(r"(?<!\d)(\d{4})\s*[-.]\s*(\d{1,2})\s*[-.]\s*(\d{1,2})(?!\d)")
+# 끝 연도를 생략한 범위(2026.11.10~11.11)는 날짜 하나로 읽지 않는다
+_OPEN_DATE_RANGE = re.compile(r"~\s*\d{1,2}\s*[.-]\s*\d{1,2}")
 # 일까지 적힌 날짜(2029.08.15)는 월로 읽지 않는다
 _MONTH = re.compile(r"(?<!\d)(\d{4})\s*(?:[-.]|년)\s*(\d{1,2})(?!\d)(?!\s*[-.]\s*\d)")
 
 
 def _date(v: str) -> str | None:
     found = _DATE.findall(v)
-    if len(found) != 1:  # 신문명·URL은 떼도 되지만 둘째 날짜는 값이다
+    if len(found) != 1 or _OPEN_DATE_RANGE.search(v):  # 신문명·URL은 떼도 되지만 둘째 날짜는 값이다
         return None
     y, m, d = found[0]
     return f"{y}-{int(m):02d}-{int(d):02d}"
