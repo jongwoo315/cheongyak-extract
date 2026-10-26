@@ -82,3 +82,18 @@ def test_different_values_stay_different(field, a, b):
 def test_empty_never_equals_non_empty(field):
     for filled in ("2026-11-10", "358세대", "반도건설"):
         assert normalize(field, "") != normalize(field, filled)
+
+
+@pytest.mark.parametrize(
+    ("field", "a", "b"),
+    [
+        ("입주예정월", "2029.08", "12029.08"),
+        ("입주예정월", "2029.08", "2029.0815"),
+        ("입주예정월", "2029.08", "2029.08.15"),  # 일까지 적힌 날짜는 월이 아니다
+        ("입주예정월", "2029.1", "2029.10"),
+        ("모집공고일", "2026-10-23", "2026-10-235"),
+        ("공급규모", "358세대", "1,358세대"),
+    ],
+)
+def test_digits_around_a_match_keep_values_apart(field, a, b):
+    assert normalize(field, a) != normalize(field, b)

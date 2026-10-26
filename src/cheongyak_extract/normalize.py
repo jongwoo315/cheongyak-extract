@@ -5,8 +5,9 @@ from collections.abc import Callable
 
 from cheongyak_extract.extract import KIND
 
-_DATE = re.compile(r"(\d{4})\s*[-.]\s*(\d{1,2})\s*[-.]\s*(\d{1,2})")
-_MONTH = re.compile(r"(\d{4})\s*(?:[-.]|년)\s*(\d{1,2})")
+_DATE = re.compile(r"(?<!\d)(\d{4})\s*[-.]\s*(\d{1,2})\s*[-.]\s*(\d{1,2})(?!\d)")
+# 일까지 적힌 날짜(2029.08.15)는 월로 읽지 않는다
+_MONTH = re.compile(r"(?<!\d)(\d{4})\s*(?:[-.]|년)\s*(\d{1,2})(?!\d)(?!\s*[-.]\s*\d)")
 
 
 def _date(v: str) -> str | None:
