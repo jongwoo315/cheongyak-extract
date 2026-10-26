@@ -269,3 +269,21 @@ def test_report_says_when_a_response_was_not_json(tmp_path):
     text = out.read_text(encoding="utf-8")
     assert "응답 모양이 깨져 비운 칸" in text
     assert "| A1 | 공급규모 | 응답이 JSON 객체가 아님 |" in text
+
+
+def test_evaluate_carries_blanked_reasons_and_wrong_cells_into_the_report(tmp_path):
+    raw = tmp_path / "raw"
+    make_raw(raw, "A1", make_pdf_bytes())
+    body = {f: {"value": None, "evidence": None, "page": None} for f in FIELDS}
+    # 근거가 1쪽에 없다 -> 규칙 4로 비운다
+    body["공급규모"] = {"value": "496세대", "evidence": "1쪽에 없는 문장", "page": 1}
+    # 근거는 있지만 값이 정답과 다르다 -> 틀리게 채움
+    body["모집공고일"] = {"value": "1999.01.01", "evidence": "입주자모집공고", "page": 1}
+    out = tmp_path / "e.md"
+    evaluate(["A1"], raw, lambda prompt: json.dumps(body, ensure_ascii=False), out)
+    text = out.read_text(encoding="utf-8")
+    assert "| 공급규모 | 1 | 0% | 100% | 0 | 0 | — | 0 | 1 |" in text
+    assert "| 모집공고일 | 1 | 0% | 0% | 0 | 0 | 100% | 1 | 0 |" in text
+    assert "| A1 | 모집공고일 |" in text.split("틀리게 채운 칸:")[1]
+    assert "LLM이 값을 준 2칸 중 근거를 확인 못해 비운 칸 1 (50%)" in text
+
