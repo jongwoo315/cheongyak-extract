@@ -8,7 +8,7 @@ from typing import NamedTuple
 import httpx
 import pymupdf
 
-from cheongyak_extract.extract import FIELDS, extract
+from cheongyak_extract.extract import FIELDS, Ask, extract
 from cheongyak_extract.fetch import LIST_URL, PAUSE_SECONDS, Skipped, download, parse_list
 from cheongyak_extract.pdf_text import pages
 from cheongyak_extract.report import Doc, FieldMetrics, metrics, render_markdown
@@ -26,6 +26,7 @@ def run(
     client: httpx.Client,
     raw_dir: Path,
     report_path: Path,
+    ask: Ask,
     pause: Callable[[float], None] = time.sleep,
 ) -> Result:
     pause(PAUSE_SECONDS)
@@ -51,7 +52,7 @@ def run(
             skipped.append((pbno, f"PDF를 열 수 없음: {e}"))
             continue
         truth = parse_truth((out / "detail.html").read_text(encoding="utf-8"))
-        docs.append(Doc(pbno, truth, extract(text), text))
+        docs.append(Doc(pbno, truth, extract(text, ask).fields, text))
 
     rows = metrics(docs, FIELDS)
     md = f"# skeleton 리포트\n\n공고 {len(docs)}건: {', '.join(d.pbno for d in docs)}\n\n"

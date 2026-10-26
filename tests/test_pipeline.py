@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 from urllib.parse import quote
 
@@ -9,6 +10,10 @@ from cheongyak_extract.fetch import LIST_URL
 from cheongyak_extract.pipeline import run
 
 FIXTURES = Path(__file__).parent / "fixtures"
+
+
+def blank_ask(prompt: str) -> str:
+    return json.dumps({f: {"value": None, "evidence": None, "page": None} for f in FIELDS})
 
 
 def make_pdf_bytes() -> bytes:
@@ -44,7 +49,7 @@ def make_transport(pdf_names: list[str], pdf: bytes | None = None) -> httpx.Mock
 def test_run_goes_from_fetch_to_report_with_stub_values(tmp_path, capsys):
     report_path = tmp_path / "reports" / "skeleton.md"
     with httpx.Client(transport=make_transport(["a.pdf"] * 3)) as client:
-        result = run(3, client, tmp_path / "raw", report_path, pause=lambda s: None)
+        result = run(3, client, tmp_path / "raw", report_path, ask=blank_ask, pause=lambda s: None)
 
     assert result.processed == 3 and result.skipped == []
     assert [m.field for m in result.metrics] == list(FIELDS)
@@ -63,7 +68,7 @@ def test_run_goes_from_fetch_to_report_with_stub_values(tmp_path, capsys):
 def test_run_skips_non_pdf_and_reports_reason(tmp_path):
     report_path = tmp_path / "skeleton.md"
     with httpx.Client(transport=make_transport(["a.hwp", "b.pdf", "c.pdf"])) as client:
-        result = run(2, client, tmp_path / "raw", report_path, pause=lambda s: None)
+        result = run(2, client, tmp_path / "raw", report_path, ask=blank_ask, pause=lambda s: None)
 
     assert result.processed == 2
     assert [pbno for pbno, _ in result.skipped] == ["2026000532"]
@@ -87,7 +92,9 @@ def test_run_skips_announcement_when_download_fails(tmp_path):
         )
 
     with httpx.Client(transport=httpx.MockTransport(handler)) as client:
-        result = run(2, client, tmp_path / "raw", tmp_path / "r.md", pause=lambda s: None)
+        result = run(
+            2, client, tmp_path / "raw", tmp_path / "r.md", ask=blank_ask, pause=lambda s: None
+        )
 
     assert result.processed == 2
     assert result.skipped[0][0] == "2026000532" and "다운로드 실패" in result.skipped[0][1]
@@ -96,7 +103,9 @@ def test_run_skips_announcement_when_download_fails(tmp_path):
 def test_run_skips_announcement_when_pdf_is_corrupt(tmp_path):
     transport = make_transport(["a.pdf"] * 3, pdf=b"not a pdf")
     with httpx.Client(transport=transport) as client:
-        result = run(3, client, tmp_path / "raw", tmp_path / "r.md", pause=lambda s: None)
+        result = run(
+            3, client, tmp_path / "raw", tmp_path / "r.md", ask=blank_ask, pause=lambda s: None
+        )
     assert result.processed == 0
     assert len(result.skipped) == 3 and "PDF" in result.skipped[0][1]
 
@@ -104,6 +113,6 @@ def test_run_skips_announcement_when_pdf_is_corrupt(tmp_path):
 def test_run_pauses_two_seconds_before_every_request(tmp_path):
     pauses: list[float] = []
     with httpx.Client(transport=make_transport(["a.pdf"] * 3)) as client:
-        run(3, client, tmp_path / "raw", tmp_path / "r.md", pause=pauses.append)
+        run(3, client, tmp_path / "raw", tmp_path / "r.md", ask=blank_ask, pause=pauses.append)
     # 목록 1회 + 공고마다 (상세 1회 + PDF 1회)
     assert pauses == [2] * (1 + 3 * 2)
