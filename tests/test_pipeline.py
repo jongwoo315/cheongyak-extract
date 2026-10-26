@@ -4,6 +4,7 @@ from urllib.parse import quote
 
 import httpx
 import pymupdf
+import pytest
 
 from cheongyak_extract import pipeline
 from cheongyak_extract.extract import FIELDS, Usage
@@ -287,3 +288,14 @@ def test_evaluate_carries_blanked_reasons_and_wrong_cells_into_the_report(tmp_pa
     assert "| A1 | 모집공고일 |" in text.split("틀리게 채운 칸:")[1]
     assert "LLM이 값을 준 2칸 중 근거를 확인 못해 비운 칸 1 (50%)" in text
 
+
+def test_evaluate_stops_on_errors_other_than_skippable_ones(tmp_path):
+    # 인증·한도 오류를 공고별 건너뜀으로 삼키면 키가 틀려도 빈 리포트와 exit 1만 남는다
+    raw = tmp_path / "raw"
+    make_raw(raw, "A1", make_pdf_bytes())
+
+    def ask(prompt):
+        raise PermissionError("401")
+
+    with pytest.raises(PermissionError):
+        evaluate(["A1"], raw, ask, tmp_path / "e.md")
