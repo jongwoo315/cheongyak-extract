@@ -69,7 +69,21 @@ def test_replay_passes_every_filter_rule_and_keeps_all_eight_fields(pbno, rule):
 def test_replay_under_b_blanks_only_values_missing_from_their_evidence(pbno):
     text, body = load(pbno)
     out = extract(pages_from_evidence(body), lambda prompt: text, "B")
+    squash = ex_reason._squash
+    expected = {f for f in FIELDS if squash(body[f]["value"]) not in squash(body[f]["evidence"])}
+    assert set(out.blanked) == expected
     assert set(out.blanked.values()) <= {ex_reason.VALUE_NOT_IN_EVIDENCE}
+
+
+def test_replay_has_values_that_are_not_in_their_evidence_so_the_b_test_is_not_vacuous():
+    squash = ex_reason._squash
+    missing = [
+        (pbno, f)
+        for pbno in TUNE_NOTICES
+        for f, c in load(pbno)[1].items()
+        if squash(c["value"]) not in squash(c["evidence"])
+    ]
+    assert missing
 
 
 @pytest.mark.parametrize("rule", RULES)
