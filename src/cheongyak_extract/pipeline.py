@@ -104,7 +104,7 @@ def run(
             skipped.append((pbno, str(e)))
             continue
         except httpx.HTTPError as e:
-            skipped.append((pbno, f"다운로드 실패: {e}"))
+            skipped.append((pbno, f"다운로드 실패: {type(e).__name__}: {e}"))
             continue
         try:
             docs.append(_analyze(pbno, out, ask))

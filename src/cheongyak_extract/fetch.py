@@ -123,7 +123,9 @@ def fetch_notices(
                 return FetchResult(fetched, skipped, f"{code} {blocks}번 연속")
             continue  # 같은 쪽을 다시 요청한다
         except httpx.HTTPError as e:
-            return FetchResult(fetched, skipped, f"목록 {page}쪽 요청 실패: {e}")
+            return FetchResult(
+                fetched, skipped, f"목록 {page}쪽 요청 실패: {type(e).__name__}: {e}"
+            )
         blocks = 0
         rows = [r for r in parse_list(listing.text) if r[1] not in seen]
         if not rows:
@@ -151,7 +153,7 @@ def fetch_notices(
                     blocks = 0
                 continue
             except httpx.HTTPError as e:
-                skipped.append((pbno, f"다운로드 실패: {e}"))
+                skipped.append((pbno, f"다운로드 실패: {type(e).__name__}: {e}"))
                 blocks = 0
                 continue
             fetched.append(pbno)

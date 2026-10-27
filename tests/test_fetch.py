@@ -256,3 +256,12 @@ def test_fetch_notices_stops_on_a_list_page_error_that_is_not_a_block(tmp_path):
 
 def test_list_url_takes_the_page_index():
     assert list_url(2).endswith("selectAPTLttotPblancListView.do?pageIndex=2")
+
+
+def test_fetch_notices_names_the_exception_type_because_a_timeout_has_an_empty_message(tmp_path):
+    def handler(request: httpx.Request) -> httpx.Response:
+        raise httpx.ReadTimeout("", request=request)
+
+    with httpx.Client(transport=httpx.MockTransport(handler)) as client:
+        result = fetch_notices(client, tmp_path, 2, 5, pause=lambda s: None)
+    assert "ReadTimeout" in result.stopped
