@@ -66,7 +66,13 @@ def _report(
     md = f"# {title}\n\n공고 {len(docs)}건: {', '.join(d.pbno for d in docs)}\n\n"
     if model := getattr(ask, "model", None):
         md += f"모델: {model}\n\n"
-    md += render_markdown(rows) + "\n" + render_summary(docs, FIELDS)
+    md += render_markdown(rows) + "\n"
+    if DEFAULT_RULE == "C":
+        md += (
+            "표의 「지어낸 값」·「근거 위치 맞음」은 근거 문장이 PDF에 없어도 값이 그 쪽에 있어 "
+            "남긴 칸(C안)까지 센다. 값이 틀렸다는 뜻이 아니다.\n\n"
+        )
+    md += render_summary(docs, FIELDS)
     if rule_table := render_rule_table(docs, FIELDS):
         md += f"\n값을 남기는 조건 A·B·C안 (같은 LLM 응답에 건 결과):\n\n{rule_table}"
         md += f"\n필드별 맞은 칸:\n\n{render_field_rates(docs, FIELDS)}"

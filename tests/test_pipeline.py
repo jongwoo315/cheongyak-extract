@@ -313,6 +313,7 @@ def test_evaluate_report_puts_the_three_rules_side_by_side_from_one_llm_call(tmp
     assert "| 안 | 정답 있는 칸 |" in text
     assert all(f"| {r} | " in text for r in ("A", "B", "C"))
     assert "| 필드 | 정답 있는 칸 | A안 맞음 | B안 맞음 | C안 맞음 |" in text
+    assert "값이 틀렸다는 뜻이 아니다" in text  # C안이 본 표라 「지어낸 값」 열의 뜻이 달라진다
 
 
 def test_evaluate_main_table_follows_the_default_rule(tmp_path, monkeypatch):
