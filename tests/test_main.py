@@ -1,6 +1,7 @@
 import pytest
 
 from cheongyak_extract import __main__ as cli
+from cheongyak_extract.fetch import FetchResult
 from cheongyak_extract.pipeline import Result
 from cheongyak_extract.report import FieldMetrics
 
@@ -80,3 +81,28 @@ def test_eval_requires_pbno_and_out():
     for args in (["eval", "--out", "x.md"], ["eval", "--pbno", "A"]):
         with pytest.raises(SystemExit):
             cli.main(args)
+
+
+def test_fetch_passes_page_n_and_raw_dir_and_prints_the_fetched_numbers(monkeypatch, capsys):
+    calls = []
+
+    def spy(client, raw_dir, start_page, n):
+        calls.append((str(raw_dir), start_page, n))
+        return FetchResult(["2026000508", "2026000507"], [], None)
+
+    def no_llm(*a):
+        raise AssertionError("fetch는 LLM을 만들지 않는다")
+
+    monkeypatch.setattr(cli, "fetch_notices", spy)
+    monkeypatch.setattr(cli, "make_ask", no_llm)
+    assert cli.main(["fetch", "--start-page", "2", "--n", "20"]) == 0
+    assert calls == [("data/raw", 2, 20)]
+    assert "2026000508 2026000507" in capsys.readouterr().out
+
+
+def test_fetch_prints_what_it_got_and_exits_1_when_it_stopped_early(monkeypatch, capsys):
+    result = FetchResult(["2026000508"], [], "429 3번 연속")
+    monkeypatch.setattr(cli, "fetch_notices", lambda *a: result)
+    assert cli.main(["fetch", "--start-page", "2", "--n", "20"]) == 1
+    out = capsys.readouterr().out
+    assert "2026000508" in out and "429 3번 연속" in out

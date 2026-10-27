@@ -2,7 +2,7 @@ import argparse
 import sys
 from pathlib import Path
 
-from cheongyak_extract.fetch import make_client
+from cheongyak_extract.fetch import fetch_notices, make_client
 from cheongyak_extract.llm import make_ask, model_from_env
 from cheongyak_extract.measure import measure_normalize
 from cheongyak_extract.pipeline import evaluate, run
@@ -24,6 +24,9 @@ def main(argv: list[str] | None = None) -> int:
     )
     e.add_argument("--pbno", nargs="+", required=True, help="공고 번호")
     e.add_argument("--out", type=Path, required=True, help="리포트 경로")
+    f = sub.add_parser("fetch", help="목록 N쪽부터 PDF 있는 공고를 n건 받는다(LLM 안 부름)")
+    f.add_argument("--start-page", type=int, default=1, help="목록 시작 쪽")
+    f.add_argument("--n", type=int, required=True, help="받을 공고 수")
     sub.add_parser("measure-normalize", help="모의 추출값 24쌍의 일치 수를 정규화 전·후로 잰다")
     args = parser.parse_args(argv)
 
@@ -32,6 +35,16 @@ def main(argv: list[str] | None = None) -> int:
             RAW_DIR, Path("tests/fixtures/pdf_forms.json"), Path("reports/normalize.md")
         )
         return 0
+
+    if args.cmd == "fetch":
+        with make_client() as client:
+            got = fetch_notices(client, RAW_DIR, args.start_page, args.n)
+        print(f"받은 공고 {len(got.fetched)}건: {' '.join(got.fetched)}")
+        for pbno, why in got.skipped:
+            print(f"건너뜀 {pbno}: {why}")
+        if got.stopped:
+            print(f"멈춤: {got.stopped}")
+        return 0 if got.stopped is None else 1
 
     ask = make_ask(model_from_env(), LLM_CACHE)
     if args.cmd == "eval":

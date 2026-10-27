@@ -7,7 +7,9 @@ import pytest
 from cheongyak_extract.fetch import (
     Skipped,
     download,
+    fetch_notices,
     filename_from_disposition,
+    list_url,
     parse_list,
     pdf_links,
 )
@@ -106,3 +108,116 @@ def test_download_tries_next_link_when_first_is_not_pdf(tmp_path):
     with httpx.Client(transport=httpx.MockTransport(handler)) as client:
         out = download(client, "1", "1", "x", tmp_path, pause=lambda s: None)
     assert (out / "notice.pdf").read_bytes() == b"b.pdf"
+
+
+# --- fetch_notices: 목록 N쪽부터 PDF 있는 공고를 n건 받는다 ---
+
+
+def _list_html(pbnos):
+    rows = "".join(f'<tr data-pbno="{p}" data-hmno="{p}" data-honm="단지{p}"></tr>' for p in pbnos)
+    return f"<table><tbody>{rows}</tbody></table>"
+
+
+def _site(pages, *, no_pdf=(), status=None):
+    """pages: {쪽: [pbno, ...]}. status: {pbno: HTTP 상태} 상세 요청이 그 상태로 실패한다."""
+    seen = []  # 요청 기록: ("list", 쪽) / ("detail", pbno) / ("pdf", pbno)
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        url = str(request.url)
+        if "ListView" in url:
+            page = int(url.rsplit("pageIndex=", 1)[1])
+            seen.append(("list", page))
+            return httpx.Response(200, text=_list_html(pages.get(page, [])))
+        if request.method == "POST":
+            pbno = request.content.decode().split("pblancNo=")[1].split("&")[0]
+            seen.append(("detail", pbno))
+            if pbno in (status or {}):
+                return httpx.Response(status[pbno])
+            link = "" if pbno in no_pdf else f'<a href="https://x.kr/getAtchmnfl.do?n={pbno}">pdf</a>'
+            return httpx.Response(200, text=f"<html>{link}</html>")
+        pbno = url.rsplit("n=", 1)[1]
+        seen.append(("pdf", pbno))
+        return httpx.Response(
+            200,
+            content=f"%PDF {pbno}".encode(),
+            headers={"content-disposition": 'attachment; filename="a.pdf"'},
+        )
+
+    return httpx.MockTransport(handler), seen
+
+
+def _fetch(tmp_path, pages, start_page=2, n=2, **site):
+    transport, seen = _site(pages, **site)
+    sleeps = []
+    with httpx.Client(transport=transport) as client:
+        result = fetch_notices(client, tmp_path, start_page, n, pause=sleeps.append)
+    return result, seen, sleeps
+
+
+def test_fetch_notices_starts_at_the_given_page_and_stops_at_n(tmp_path):
+    result, seen, _ = _fetch(tmp_path, {1: ["A"], 2: ["B", "C", "D"]})
+    assert result.fetched == ["B", "C"]
+    assert result.stopped is None
+    assert ("list", 1) not in seen and ("detail", "D") not in seen
+    assert (tmp_path / "B" / "notice.pdf").read_bytes() == b"%PDF B"
+
+
+def test_fetch_notices_goes_on_to_the_next_page_when_one_is_not_enough(tmp_path):
+    result, seen, _ = _fetch(tmp_path, {2: ["B"], 3: ["C"]}, n=2)
+    assert result.fetched == ["B", "C"]
+    assert [s for s in seen if s[0] == "list"] == [("list", 2), ("list", 3)]
+
+
+def test_fetch_notices_skips_notices_that_already_have_a_pdf_and_2026000531(tmp_path):
+    (tmp_path / "B").mkdir()
+    (tmp_path / "B" / "notice.pdf").write_bytes(b"old")
+    result, seen, _ = _fetch(tmp_path, {2: ["B", "2026000531", "C", "D"]})
+    assert result.fetched == ["C", "D"]
+    assert (tmp_path / "B" / "notice.pdf").read_bytes() == b"old"
+    assert not any(s[1] in ("B", "2026000531") for s in seen if s[0] != "list")
+
+
+def test_fetch_notices_does_not_count_notices_without_a_pdf(tmp_path):
+    result, _, _ = _fetch(tmp_path, {2: ["B", "C", "D"]}, no_pdf=("B",))
+    assert result.fetched == ["C", "D"]
+    assert result.skipped == [("B", "상세에 공고문 링크 없음")]
+
+
+def test_fetch_notices_ends_when_the_list_runs_out(tmp_path):
+    result, _, _ = _fetch(tmp_path, {2: ["B"]}, n=5)
+    assert result.fetched == ["B"]
+    assert result.stopped == "목록 끝"
+
+
+def test_fetch_notices_pauses_two_seconds_before_every_request(tmp_path):
+    result, seen, sleeps = _fetch(tmp_path, {2: ["B"]}, n=1)
+    assert len(sleeps) == len(seen) == 3  # 목록, 상세, PDF
+    assert set(sleeps) == {2}
+
+
+@pytest.mark.parametrize("code", [403, 429])
+def test_fetch_notices_stops_after_three_blocks_in_a_row(tmp_path, code):
+    pages = {2: ["B", "C", "D", "E", "F"]}
+    result, seen, _ = _fetch(
+        tmp_path, pages, n=5, status={"C": code, "D": code, "E": code, "F": code}
+    )
+    assert result.fetched == ["B"]
+    assert result.stopped == f"{code} 3번 연속"
+    assert ("detail", "F") not in seen
+
+
+def test_fetch_notices_resets_the_block_count_after_a_success(tmp_path):
+    pages = {2: ["B", "C", "D", "E", "F"]}
+    result, _, _ = _fetch(tmp_path, pages, n=3, status={"B": 429, "C": 429, "E": 403, "F": 403})
+    assert result.fetched == ["D"]
+    assert result.stopped == "목록 끝"
+
+
+def test_fetch_notices_ignores_other_http_errors_without_counting_them_as_blocks(tmp_path):
+    result, _, _ = _fetch(tmp_path, {2: ["B", "C", "D"]}, n=1, status={"B": 500})
+    assert result.fetched == ["C"]
+    assert result.skipped[0][0] == "B" and "500" in result.skipped[0][1]
+
+
+def test_list_url_takes_the_page_index():
+    assert list_url(2).endswith("selectAPTLttotPblancListView.do?pageIndex=2")
