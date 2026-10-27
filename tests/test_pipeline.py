@@ -299,3 +299,32 @@ def test_evaluate_stops_on_errors_other_than_skippable_ones(tmp_path):
 
     with pytest.raises(PermissionError):
         evaluate(["A1"], raw, ask, tmp_path / "e.md")
+
+
+def test_evaluate_report_puts_the_three_rules_side_by_side_from_one_llm_call(tmp_path):
+    raw = tmp_path / "raw"
+    make_raw(raw, "A1", make_pdf_bytes())
+    ask = CountingAsk()
+    out = tmp_path / "e.md"
+    evaluate(["A1"], raw, ask, out)
+    text = out.read_text(encoding="utf-8")
+    assert ask.n == 1  # 세 안이 같은 응답을 쓴다
+    assert "| 안 | 정답 있는 칸 |" in text
+    assert all(f"| {r} | " in text for r in ("A", "B", "C"))
+    assert "| 필드 | 정답 있는 칸 | A안 맞음 | B안 맞음 | C안 맞음 |" in text
+
+
+def test_evaluate_main_table_follows_the_default_rule(tmp_path, monkeypatch):
+    # 근거 문장은 PDF에 없고 값만 있다: A안은 비우고 C안은 남긴다
+    def ask(prompt):
+        body = json.loads(scale_ask(prompt))
+        body["공급규모"]["evidence"] = "원문에 없는 문장"
+        return json.dumps(body, ensure_ascii=False)
+
+    raw = tmp_path / "raw"
+    make_raw(raw, "A1", make_pdf_bytes())
+    for rule, accuracy in (("A", "0%"), ("C", "100%")):
+        monkeypatch.setattr(pipeline, "DEFAULT_RULE", rule)
+        out = tmp_path / f"{rule}.md"
+        evaluate(["A1"], raw, ask, out)
+        assert f"| 공급규모 | 1 | {accuracy} |" in out.read_text(encoding="utf-8")

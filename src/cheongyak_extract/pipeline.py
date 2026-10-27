@@ -7,7 +7,7 @@ from typing import NamedTuple
 
 import httpx
 
-from cheongyak_extract.extract import FIELDS, Ask, extract
+from cheongyak_extract.extract import DEFAULT_RULE, FIELDS, Ask, extract_rules
 from cheongyak_extract.fetch import LIST_URL, PAUSE_SECONDS, Skipped, download, parse_list
 from cheongyak_extract.llm import BadResponse, ContextExceeded
 from cheongyak_extract.pdf_text import pages
@@ -15,7 +15,9 @@ from cheongyak_extract.report import (
     Doc,
     FieldMetrics,
     metrics,
+    render_field_rates,
     render_markdown,
+    render_rule_table,
     render_shape_errors,
     render_summary,
     render_usage,
@@ -47,12 +49,14 @@ def _analyze(pbno: str, out: Path, ask: Ask) -> Doc:
         raise SkipDoc("텍스트 없음(스캔 PDF로 보임)")
     truth = parse_truth((out / "detail.html").read_text(encoding="utf-8"))
     try:
-        got = extract(text, ask)
+        by_rule = extract_rules(text, ask)
     except ContextExceeded as e:
         raise SkipDoc(f"컨텍스트 한도 초과: {e}") from e
     except BadResponse as e:  # 이 공고의 응답만 못 쓴다. 인증·한도 오류는 잡지 않고 멈춘다
         raise SkipDoc(f"LLM 응답을 쓸 수 없음: {e}") from e
-    return Doc(pbno, truth, got.fields, text, got.blanked, getattr(ask, "last_usage", None))
+    got = by_rule[DEFAULT_RULE]
+    usage = getattr(ask, "last_usage", None)
+    return Doc(pbno, truth, got.fields, text, got.blanked, usage, by_rule)
 
 
 def _report(
@@ -63,6 +67,9 @@ def _report(
     if model := getattr(ask, "model", None):
         md += f"모델: {model}\n\n"
     md += render_markdown(rows) + "\n" + render_summary(docs, FIELDS)
+    if rule_table := render_rule_table(docs, FIELDS):
+        md += f"\n값을 남기는 조건 A·B·C안 (같은 LLM 응답에 건 결과):\n\n{rule_table}"
+        md += f"\n필드별 맞은 칸:\n\n{render_field_rates(docs, FIELDS)}"
     md += "\n틀리게 채운 칸:\n\n" + render_wrong(docs, FIELDS)
     md += render_shape_errors(docs)
     md += "\n토큰:\n\n" + render_usage(docs)

@@ -133,7 +133,9 @@ def _site(pages, *, no_pdf=(), status=None):
             seen.append(("detail", pbno))
             if pbno in (status or {}):
                 return httpx.Response(status[pbno])
-            link = "" if pbno in no_pdf else f'<a href="https://x.kr/getAtchmnfl.do?n={pbno}">pdf</a>'
+            link = (
+                "" if pbno in no_pdf else f'<a href="https://x.kr/getAtchmnfl.do?n={pbno}">pdf</a>'
+            )
             return httpx.Response(200, text=f"<html>{link}</html>")
         pbno = url.rsplit("n=", 1)[1]
         seen.append(("pdf", pbno))

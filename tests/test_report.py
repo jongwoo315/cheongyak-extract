@@ -1,13 +1,18 @@
+import pytest
+
 from cheongyak_extract import extract as ex
 from cheongyak_extract.extract import FIELDS, Extraction, Usage
 from cheongyak_extract.report import (
     Doc,
     metrics,
+    render_field_rates,
     render_markdown,
+    render_rule_table,
     render_shape_errors,
     render_summary,
     render_usage,
     render_wrong,
+    with_rule,
 )
 
 EMPTY = Extraction(None, None, None)
@@ -195,3 +200,84 @@ def test_summary_denominator_counts_every_rule_that_dropped_a_given_value():
         blanked("g", ex.NO_VALUE),
     ]
     assert "LLM이 값을 준 3칸 중 근거를 확인 못해 비운 칸 1 (33%)" in render_summary(docs, ("f",))
+
+
+# --- 값을 남기는 조건 A·B·C안 비교 ---
+
+
+OK = (Extraction("A", "foo", 1), None)
+BAD = (Extraction("X", "foo", 1), None)
+NIP = (EMPTY, ex.NOT_IN_PAGE)
+VNE = (EMPTY, ex.VALUE_NOT_IN_EVIDENCE)
+NOV = (EMPTY, ex.NO_VALUE)
+
+
+def rule_doc(pbno, truth, by_rule):
+    """by_rule: {안: (Extraction, 비운 이유 또는 None)}. 고른 안은 A."""
+    rules = {
+        r: ex.Extracted({"f": e}, {"f": why} if why else {}) for r, (e, why) in by_rule.items()
+    }
+    return Doc(pbno, {"f": truth}, rules["A"].fields, ["p"], rules["A"].blanked, rules=rules)
+
+
+def test_with_rule_swaps_in_that_rules_cells_and_reasons():
+    ok = Extraction("A", "foo", 1)
+    d = rule_doc("a", "A", {"A": NIP, "B": NIP, "C": OK})
+    c = with_rule(d, "C")
+    assert c.extracted == {"f": ok} and c.blanked == {}
+    assert with_rule(d, "A") == d
+
+
+def test_with_rule_rejects_a_rule_the_doc_does_not_have():
+    with pytest.raises(KeyError):
+        with_rule(Doc("a", {}, {}, ["p"]), "B")
+
+
+def test_rule_table_counts_right_blank_wrong_per_rule_over_cells_with_truth():
+    docs = [
+        # A: 맞음 / B: 비움(근거 안에 값 없음) / C: 맞음
+        rule_doc("a", "A", {"A": OK, "B": VNE, "C": OK}),
+        # 세 안 모두 틀리게 채움
+        rule_doc("b", "A", {"A": BAD, "B": BAD, "C": BAD}),
+        # A·B: 근거를 못 찾아 비움 / C: 값이 쪽에 있어 남김(맞음)
+        rule_doc("c", "A", {"A": NIP, "B": NIP, "C": OK}),
+        # 정답이 없는 칸은 세지 않는다
+        rule_doc("d", None, {"A": BAD, "B": BAD, "C": BAD}),
+    ]
+    md = render_rule_table(docs, ("f",))
+    assert (
+        "| 안 | 정답 있는 칸 | 맞음 | 비움 | 틀리게 채움 | LLM이 값을 준 칸 | 그 조건으로 비운 칸 |"
+        in md
+    )
+    assert "| A | 3 | 1 (33%) | 1 (33%) | 1 (33%) | 3 | 1 (33%) |" in md
+    assert "| B | 3 | 0 (0%) | 2 (67%) | 1 (33%) | 3 | 2 (67%) |" in md
+    assert "| C | 3 | 2 (67%) | 0 (0%) | 1 (33%) | 3 | 0 (0%) |" in md
+
+
+def test_rule_table_is_empty_when_docs_have_no_rule_results():
+    assert render_rule_table([Doc("a", {"f": "A"}, {"f": EMPTY}, ["p"])], ("f",)) == ""
+
+
+def test_field_rate_table_lists_right_over_truth_per_field_and_rule():
+    docs = [
+        rule_doc("a", "A", {"A": OK, "B": VNE, "C": OK}),
+        rule_doc(
+            "b",
+            "A",
+            {"A": NOV, "B": NOV, "C": NOV},
+        ),
+    ]
+    md = render_field_rates(docs, ("f",))
+    assert "| 필드 | 정답 있는 칸 | A안 맞음 | B안 맞음 | C안 맞음 |" in md
+    assert "| f | 2 | 1 (50%) | 0 (0%) | 1 (50%) |" in md
+
+
+def test_summary_counts_the_new_rule_blanks_as_given_then_blanked():
+    docs = [
+        Doc("a", {"f": "A"}, {"f": EMPTY}, ["p"], {"f": ex.VALUE_NOT_IN_EVIDENCE}),
+        Doc("b", {"f": "A"}, {"f": EMPTY}, ["p"], {"f": ex.NEITHER_IN_PAGE}),
+        Doc("c", {"f": "A"}, {"f": Extraction("A", "foo", 1)}, ["foo"]),
+    ]
+    assert "LLM이 값을 준 3칸 중 근거를 확인 못해 비운 칸 2 (67%)" in render_summary(docs, ("f",))
+    (m,) = metrics(docs, ("f",))
+    assert m.ungrounded == 2

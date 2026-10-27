@@ -78,6 +78,7 @@ BAD_CELL = "응답 칸의 모양이 다름"
 #   A: 근거 문장이 그 쪽에 있다.  B: A + 값이 근거 문장 안에 있다.
 #   C: 근거 문장이 그 쪽에 있거나, 값이 그 쪽에 있다.
 RULES = ("A", "B", "C")
+DEFAULT_RULE = "A"  # 리포트 본 표와 extract()의 기본. 고르는 규칙은 설계 §값을 남기는 조건
 # 이 조건으로 값을 비운 이유. 구조 규칙(1·2·3·5)이나 응답 모양 오류와 구분한다
 RULE_BLANKS = (NOT_IN_PAGE, VALUE_NOT_IN_EVIDENCE, NEITHER_IN_PAGE)
 
@@ -206,7 +207,7 @@ def extract_rules(pages: list[str], ask: Ask) -> dict[str, Extracted]:
     return out
 
 
-def extract(pages: list[str], ask: Ask, rule: str = "A") -> Extracted:
+def extract(pages: list[str], ask: Ask, rule: str = DEFAULT_RULE) -> Extracted:
     """LLM을 한 번 불러 8개 필드를 받고, rule안으로 근거를 못 찾는 칸을 비운다."""
     if rule not in RULES:
         raise ValueError(f"값을 남기는 조건은 {RULES} 중 하나다: {rule!r}")

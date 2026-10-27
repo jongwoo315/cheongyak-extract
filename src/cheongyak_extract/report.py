@@ -1,6 +1,6 @@
 """필드별 eval 리포트. 지표 정의는 docs/plans/146-1025-design-skeleton.md §리포트 지표."""
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 
 from cheongyak_extract.extract import (
     BAD_CELL,
@@ -9,7 +9,9 @@ from cheongyak_extract.extract import (
     EMPTY,
     NO_EVIDENCE,
     NO_KEY,
-    NOT_IN_PAGE,
+    RULE_BLANKS,
+    RULES,
+    Extracted,
     Extraction,
     Usage,
     grounded,
@@ -28,8 +30,8 @@ COLUMNS = (
     "근거 확인 못해 비움",
 )
 
-# 근거 규칙(2·3·4)으로 비운 칸은 LLM이 값을 줬다가 코드가 비운 칸이다
-_GAVE_THEN_BLANKED = (NO_EVIDENCE, BAD_PAGE, NOT_IN_PAGE)
+# 근거 규칙(2·3)과 값을 남기는 조건(4)으로 비운 칸은 LLM이 값을 줬다가 코드가 비운 칸이다
+_GAVE_THEN_BLANKED = (NO_EVIDENCE, BAD_PAGE, *RULE_BLANKS)
 # 응답 모양이 깨져 비운 칸. LLM이 일부러 비운 것도, 근거 규칙으로 비운 것도 아니다
 _SHAPE_ERRORS = (BAD_JSON, BAD_CELL, NO_KEY)
 
@@ -42,6 +44,13 @@ class Doc:
     pages: list[str]
     blanked: dict[str, str] = field(default_factory=dict)  # 필드 -> 비운 이유
     usage: Usage | None = None
+    rules: dict[str, Extracted] = field(default_factory=dict)  # 같은 응답에 건 A·B·C안 결과
+
+
+def with_rule(d: Doc, rule: str) -> Doc:
+    """d의 extracted·blanked를 rule안 결과로 바꾼 Doc. d.rules에 없는 안이면 KeyError."""
+    r = d.rules[rule]
+    return replace(d, extracted=r.fields, blanked=r.blanked)
 
 
 @dataclass(frozen=True)
@@ -90,7 +99,7 @@ def metrics(docs: list[Doc], fields: tuple[str, ...]) -> list[FieldMetrics]:
                 correct += state == "right"
                 blank += state == "blank"
                 wrong += state == "wrong"
-                ungrounded += d.blanked.get(f) == NOT_IN_PAGE
+                ungrounded += d.blanked.get(f) in RULE_BLANKS
             if not _empty(ex.value) and not grounded(ex.evidence, "\n".join(d.pages)):
                 fabricated += 1
             if ex.page is not None:
@@ -181,26 +190,81 @@ def render_usage(docs: list[Doc]) -> str:
     return _table(("공고", "입력 토큰", "출력 토큰"), rows)
 
 
+class _Counts:
+    """정답이 있는 칸의 상태 수와, LLM이 값을 준 칸 중 값을 남기는 조건으로 비운 칸 수."""
+
+    def __init__(self, docs: list[Doc], fields: tuple[str, ...]) -> None:
+        self.n = self.right = self.blank = self.wrong = self.gave = self.rule_blanked = 0
+        for d in docs:
+            for f in fields:
+                state = _state(f, d)
+                if state is None:
+                    continue
+                self.n += 1
+                self.right += state == "right"
+                self.blank += state == "blank"
+                self.wrong += state == "wrong"
+                why = d.blanked.get(f)
+                self.gave += (
+                    not _empty(d.extracted.get(f, EMPTY).value) or why in _GAVE_THEN_BLANKED
+                )
+                self.rule_blanked += why in RULE_BLANKS
+
+
+def _count_pct(num: int, den: int) -> str:
+    return f"{num} ({_pct(_rate(num, den))})"
+
+
 def render_summary(docs: list[Doc], fields: tuple[str, ...]) -> str:
-    states = [s for d in docs for f in fields if (s := _state(f, d))]
-    gave = blanked_ungrounded = 0
-    for d in docs:
-        for f in fields:
-            if _state(f, d) is None:
-                continue
-            why = d.blanked.get(f)
-            gave += not _empty(d.extracted.get(f, EMPTY).value) or why in _GAVE_THEN_BLANKED
-            blanked_ungrounded += why == NOT_IN_PAGE
-    count = states.count
-    md = (
-        f"정답 있는 칸 {len(states)} · 맞음 {count('right')} · 비움 {count('blank')}"
-        f" · 틀리게 채움 {count('wrong')}\n\n"
-    )
-    if gave:
+    c = _Counts(docs, fields)
+    md = f"정답 있는 칸 {c.n} · 맞음 {c.right} · 비움 {c.blank} · 틀리게 채움 {c.wrong}\n\n"
+    if c.gave:
         md += (
-            f"LLM이 값을 준 {gave}칸 중 근거를 확인 못해 비운 칸 {blanked_ungrounded}"
-            f" ({_pct(blanked_ungrounded / gave)})\n"
+            f"LLM이 값을 준 {c.gave}칸 중 근거를 확인 못해 비운 칸 {c.rule_blanked}"
+            f" ({_pct(c.rule_blanked / c.gave)})\n"
         )
     else:
         md += "LLM이 값을 준 칸 없음\n"
     return md
+
+
+def render_rule_table(docs: list[Doc], fields: tuple[str, ...]) -> str:
+    """A·B·C안을 같은 응답에 걸었을 때의 칸 수. 안 결과가 없는 Doc뿐이면 빈 문자열."""
+    if not any(d.rules for d in docs):
+        return ""
+    rows = []
+    for rule in RULES:
+        c = _Counts([with_rule(d, rule) for d in docs if d.rules], fields)
+        rows.append(
+            (
+                rule,
+                c.n,
+                _count_pct(c.right, c.n),
+                _count_pct(c.blank, c.n),
+                _count_pct(c.wrong, c.n),
+                c.gave,
+                _count_pct(c.rule_blanked, c.gave),
+            )
+        )
+    head = (
+        "안",
+        "정답 있는 칸",
+        "맞음",
+        "비움",
+        "틀리게 채움",
+        "LLM이 값을 준 칸",
+        "그 조건으로 비운 칸",
+    )
+    return _table(head, rows)
+
+
+def render_field_rates(docs: list[Doc], fields: tuple[str, ...]) -> str:
+    """필드별로 안마다 맞은 칸 수와 비율(정답 있는 칸 기준). 안 결과가 없으면 빈 문자열."""
+    ruled = [d for d in docs if d.rules]
+    if not ruled:
+        return ""
+    rows = []
+    for f in fields:
+        per_rule = [_Counts([with_rule(d, r) for d in ruled], (f,)) for r in RULES]
+        rows.append((f, per_rule[0].n, *(_count_pct(c.right, c.n) for c in per_rule)))
+    return _table(("필드", "정답 있는 칸", *(f"{r}안 맞음" for r in RULES)), rows)
