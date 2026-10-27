@@ -215,10 +215,43 @@ def test_fetch_notices_resets_the_block_count_after_a_success(tmp_path):
     assert result.stopped == "목록 끝"
 
 
-def test_fetch_notices_ignores_other_http_errors_without_counting_them_as_blocks(tmp_path):
-    result, _, _ = _fetch(tmp_path, {2: ["B", "C", "D"]}, n=1, status={"B": 500})
-    assert result.fetched == ["C"]
-    assert result.skipped[0][0] == "B" and "500" in result.skipped[0][1]
+def test_fetch_notices_does_not_stop_on_other_http_errors_however_many(tmp_path):
+    pages = {2: ["B", "C", "D", "E", "F"]}
+    result, _, _ = _fetch(tmp_path, pages, n=5, status={"B": 500, "C": 500, "D": 500, "E": 500})
+    assert result.fetched == ["F"]
+    assert result.stopped == "목록 끝"
+    assert [p for p, _ in result.skipped] == ["B", "C", "D", "E"]
+    assert all("500" in why for _, why in result.skipped)
+
+
+def test_fetch_notices_counts_only_consecutive_blocks_so_another_error_resets_the_count(tmp_path):
+    pages = {2: ["B", "C", "D", "E", "F"]}
+    status = {"B": 403, "C": 500, "D": 403, "E": 403, "F": 429}
+    result, _, _ = _fetch(tmp_path, pages, n=5, status=status)
+    assert result.fetched == []
+    assert result.stopped == "429 3번 연속"  # D·E·F가 이어진 3번. B와 D 사이에 500이 끼어 있다
+
+
+def test_fetch_notices_counts_a_blocked_list_page_and_stops_after_three(tmp_path):
+    attempts = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        attempts.append(str(request.url))
+        return httpx.Response(429)
+
+    with httpx.Client(transport=httpx.MockTransport(handler)) as client:
+        result = fetch_notices(client, tmp_path, 2, 5, pause=lambda s: None)
+    assert len(attempts) == 3
+    assert result.fetched == [] and result.stopped == "429 3번 연속"
+
+
+def test_fetch_notices_stops_on_a_list_page_error_that_is_not_a_block(tmp_path):
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(500)
+
+    with httpx.Client(transport=httpx.MockTransport(handler)) as client:
+        result = fetch_notices(client, tmp_path, 2, 5, pause=lambda s: None)
+    assert result.fetched == [] and "목록 2쪽 요청 실패" in result.stopped
 
 
 def test_list_url_takes_the_page_index():

@@ -99,8 +99,10 @@ def fetch_notices(
 ) -> FetchResult:
     """목록 start_page쪽부터 PDF가 있는 공고를 n건 받는다.
 
-    notice.pdf가 이미 있는 공고와 ALWAYS_SKIP은 요청 없이 건너뛴다. 403·429가
-    MAX_BLOCKS_IN_A_ROW번 연속이면 멈춘다. 응답을 받은 공고(받음·링크 없음)는 연속을 끊는다.
+    notice.pdf가 이미 있는 공고와 ALWAYS_SKIP은 요청 없이 건너뛴다. 403·429(목록 요청 포함)가
+    MAX_BLOCKS_IN_A_ROW번 연속이면 멈춘다. 그 사이에 막힘이 아닌 결과(받음·링크 없음·500·
+    타임아웃)가 한 번이라도 끼면 연속이 끊긴다. 멈춤 메시지의 코드는 마지막 막힘의 코드다.
+    목록 요청이 막힘이 아닌 이유로 실패하면 바로 멈춘다.
     """
     fetched: list[str] = []
     skipped: list[tuple[str, str]] = []
@@ -112,8 +114,17 @@ def fetch_notices(
         try:
             listing = client.get(list_url(page))
             listing.raise_for_status()
+        except httpx.HTTPStatusError as e:
+            code = e.response.status_code
+            if code not in BLOCK_CODES:
+                return FetchResult(fetched, skipped, f"목록 {page}쪽 요청 실패: {e}")
+            blocks += 1
+            if blocks == MAX_BLOCKS_IN_A_ROW:
+                return FetchResult(fetched, skipped, f"{code} {blocks}번 연속")
+            continue  # 같은 쪽을 다시 요청한다
         except httpx.HTTPError as e:
             return FetchResult(fetched, skipped, f"목록 {page}쪽 요청 실패: {e}")
+        blocks = 0
         rows = [r for r in parse_list(listing.text) if r[1] not in seen]
         if not rows:
             return FetchResult(fetched, skipped, "목록 끝")
@@ -136,9 +147,12 @@ def fetch_notices(
                     blocks += 1
                     if blocks == MAX_BLOCKS_IN_A_ROW:
                         return FetchResult(fetched, skipped, f"{code} {blocks}번 연속")
+                else:
+                    blocks = 0
                 continue
             except httpx.HTTPError as e:
                 skipped.append((pbno, f"다운로드 실패: {e}"))
+                blocks = 0
                 continue
             fetched.append(pbno)
             blocks = 0
