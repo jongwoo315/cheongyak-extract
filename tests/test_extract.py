@@ -71,7 +71,7 @@ def respond(**cells):
 
 
 def run(response: str, pages=PAGES):
-    return extract(pages, lambda prompt: response)
+    return extract(pages, lambda prompt: response, rule="A")  # 규칙 1~5의 기본 동작은 A안 기준
 
 
 def test_prompt_marks_every_page_and_names_every_field():
@@ -194,10 +194,14 @@ def run_rule(rule, **cells):
     return extract(RULE_PAGES, lambda prompt: respond(**cells), rule=rule)
 
 
-def test_rules_are_a_b_c_and_a_is_the_default():
+def test_rules_are_a_b_c_and_the_default_is_one_of_them():
     assert ex.RULES == ("A", "B", "C")
-    both_ok = respond(공급규모=cell("358세대", "일반분양 358세대", 2))
-    assert extract(RULE_PAGES, lambda p: both_ok) == extract(RULE_PAGES, lambda p: both_ok, "A")
+    assert ex.DEFAULT_RULE in ex.RULES
+    # 근거는 쪽에 없고 값만 있는 응답: 기본 안이 어느 쪽 동작인지 고정한다(C안이면 남긴다)
+    only_value = respond(공급규모=cell("358세대", "엉뚱한 근거", 2))
+    default = extract(RULE_PAGES, lambda p: only_value)
+    assert default == extract(RULE_PAGES, lambda p: only_value, ex.DEFAULT_RULE)
+    assert default.fields["공급규모"].value == "358세대"
 
 
 def test_unknown_rule_is_a_value_error():

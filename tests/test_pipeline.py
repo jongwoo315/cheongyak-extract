@@ -272,7 +272,8 @@ def test_report_says_when_a_response_was_not_json(tmp_path):
     assert "| A1 | 공급규모 | 응답이 JSON 객체가 아님 |" in text
 
 
-def test_evaluate_carries_blanked_reasons_and_wrong_cells_into_the_report(tmp_path):
+def test_evaluate_carries_blanked_reasons_and_wrong_cells_into_the_report(tmp_path, monkeypatch):
+    monkeypatch.setattr(pipeline, "DEFAULT_RULE", "A")
     raw = tmp_path / "raw"
     make_raw(raw, "A1", make_pdf_bytes())
     body = {f: {"value": None, "evidence": None, "page": None} for f in FIELDS}
