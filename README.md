@@ -19,28 +19,48 @@ PR이 그 기준을 맞췄는지는 내가 판정했다. 2026-10-25부터 쌓았
 
 ## 실행
 
+LLM 호출에는 `OPENAI_API_KEY` 환경변수가 필요하다. 모델은 `gpt-5.4-mini`이고 `OPENAI_EXTRACT_MODEL`로 바꾼다.
+같은 프롬프트의 응답은 `data/llm/`에 캐시되어 다시 부르지 않는다(커밋하지 않는다).
+
 ```bash
+# 목록 2쪽부터 PDF 있는 공고 20건을 data/raw/에 받는다(LLM 안 부름)
+uv run python -m cheongyak_extract fetch --start-page 2 --n 20
+
+# 받아 둔 공고만 읽어 LLM 추출 → 필드별 리포트(청약홈 요청 없음)
+uv run python -m cheongyak_extract eval --pbno 2026000518 2026000530 --out reports/x.md
+
+# 수집부터 추출·리포트까지 한 번에
 uv run python -m cheongyak_extract run --n 3
 ```
 
-명령 하나로 아래 흐름이 끝까지 돌고, 필드별 리포트 표가 stdout과 `reports/skeleton.md`에 나온다.
-요청은 순서대로 보내고 사이마다 2초 쉰다. 받은 원본은 `data/raw/`에 두며 커밋하지 않는다.
+- 요청은 순서대로 보내고 사이마다 2초 쉰다. `fetch`는 403·429가 3번 연속이면 멈추고 그때까지 받은 공고 번호를 출력한다
+- 이미 `notice.pdf`가 있는 공고는 건너뛴다. 받은 원본은 `data/raw/`에 두며 커밋하지 않는다
+- `eval --no-sort`는 PDF 텍스트를 pymupdf 기본 순서로 뽑는다(`sort=True`와 비교할 때만 쓴다)
 
 ## 흐름
 
 ```
 fetch (목록 → 상세 HTML → 공고문 PDF)  →  data/raw/<pbno>/{detail.html, notice.pdf}
-pdf_text (쪽마다 텍스트)                →  list[str]
-extract (stub: 전 필드 빈 값)           →  {field: Extraction(value, evidence, page)}
+pdf_text (쪽마다 텍스트, sort=True)      →  list[str]
+extract (LLM 한 번 + 값을 남기는 조건)   →  {field: Extraction(value, evidence, page)}
 truth (상세 HTML 표 → 정답 필드)        →  {field: str | None}
-compare + report (필드별 지표 표)       →  stdout + reports/skeleton.md
+compare + report (필드별 지표 표)       →  stdout + reports/*.md
 ```
 
-## 현재 상태
+값을 남기는 조건은 같은 LLM 응답에 A·B·C안을 걸어 비교한다. 리포트 본 표는 `extract.DEFAULT_RULE`(C안)를 따른다.
 
-- 추출은 아직 stub이다. 모든 필드를 빈 값으로 돌려주므로 정확도 0%, 빈 칸 100%가 정상이다
-- 첫 실행 결과: [reports/skeleton.md](reports/skeleton.md)
-- 이후 티켓이 stub을 하나씩 실제 구현으로 바꾼다. LLM 추출은 #147이다
+| 안 | 값을 남기는 조건 |
+| --- | --- |
+| A안 | 근거 문장이 그 쪽에 있다 |
+| B안 | A안 + 값이 근거 문장 안에 있다 |
+| C안 | 근거 문장이 그 쪽에 있거나, 값이 그 쪽에 있다 |
+
+## 리포트
+
+- [reports/extract-tune-0.md](reports/extract-tune-0.md): `sort=True` 효과(첫 시도 프롬프트, 다듬는 공고 9건)
+- [reports/extract-tune.md](reports/extract-tune.md): 프롬프트 수정마다 한 줄, 다듬는 공고 9건
+- [reports/extract-new.md](reports/extract-new.md): 프롬프트 고정 뒤 처음 본 공고 20건
+- [reports/normalize.md](reports/normalize.md): 정규화 효과(#148), [reports/skeleton.md](reports/skeleton.md): stub 첫 실행(#146)
 
 ## 테스트
 
@@ -48,4 +68,4 @@ compare + report (필드별 지표 표)       →  stdout + reports/skeleton.md
 uv run pytest
 ```
 
-네트워크 없이 돈다. 수집 코드는 `httpx.MockTransport`로, PDF는 테스트 안에서 pymupdf로 만든다.
+네트워크와 API 없이 돈다. 수집 코드는 `httpx.MockTransport`로, LLM은 가짜 응답과 `tests/fixtures/llm/`에 녹화한 응답으로, PDF는 테스트 안에서 pymupdf로 만든다.
