@@ -119,7 +119,7 @@ def _list_html(pbnos):
 
 
 def _site(pages, *, no_pdf=(), status=None):
-    """pages: {쪽: [pbno, ...]}. status: {pbno: HTTP 상태} 상세 요청이 그 상태로 실패한다."""
+    """pages: {쪽: [pbno, ...]}. status: {pbno: 상태 또는 "timeout"}. 그 상세 요청이 실패한다."""
     seen = []  # 요청 기록: ("list", 쪽) / ("detail", pbno) / ("pdf", pbno)
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -131,6 +131,8 @@ def _site(pages, *, no_pdf=(), status=None):
         if request.method == "POST":
             pbno = request.content.decode().split("pblancNo=")[1].split("&")[0]
             seen.append(("detail", pbno))
+            if (status or {}).get(pbno) == "timeout":
+                raise httpx.ReadTimeout("", request=request)
             if pbno in (status or {}):
                 return httpx.Response(status[pbno])
             link = (
@@ -272,3 +274,18 @@ def test_fetch_notices_does_not_call_an_empty_first_page_the_end_of_the_list(tmp
     assert result.fetched == []
     assert result.stopped != "목록 끝"
     assert "비어 있음" in result.stopped
+
+
+def test_fetch_notices_stops_when_a_later_page_repeats_rows_it_has_seen(tmp_path):
+    # 범위 밖 pageIndex가 마지막 쪽을 되돌려주면 seen이 걸러 끝낸다. 걸러 내지 않으면 끝없이 돈다
+    result, _, _ = _fetch(tmp_path, {2: ["B"], 3: ["B"], 4: ["B"]}, n=5)
+    assert result.fetched == ["B"]
+    assert result.stopped == "목록 끝"
+
+
+def test_fetch_notices_a_timeout_between_blocks_resets_the_block_count(tmp_path):
+    pages = {2: ["B", "C", "D", "E", "F"]}
+    status = {"B": 403, "C": 403, "D": "timeout", "E": 403, "F": 403}
+    result, _, _ = _fetch(tmp_path, pages, n=5, status=status)
+    assert result.stopped == "목록 끝"  # 403이 둘, 시간 초과, 403이 둘: 3번 연속이 아니다
+    assert [p for p, _ in result.skipped] == ["B", "C", "D", "E", "F"]
