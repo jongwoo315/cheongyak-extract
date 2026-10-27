@@ -129,6 +129,10 @@ def fetch_notices(
         blocks = 0
         rows = [r for r in parse_list(listing.text) if r[1] not in seen]
         if not rows:
+            if not seen:  # 한 건도 못 본 채 비었다면 끝이 아니라 차단 페이지·마크업 변경이다
+                return FetchResult(
+                    fetched, skipped, f"목록 {page}쪽이 비어 있음(차단·마크업 변경 의심)"
+                )
             return FetchResult(fetched, skipped, "목록 끝")
         for hmno, pbno, honm in rows:
             if len(fetched) == n:

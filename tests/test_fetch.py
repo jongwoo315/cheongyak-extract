@@ -265,3 +265,10 @@ def test_fetch_notices_names_the_exception_type_because_a_timeout_has_an_empty_m
     with httpx.Client(transport=httpx.MockTransport(handler)) as client:
         result = fetch_notices(client, tmp_path, 2, 5, pause=lambda s: None)
     assert "ReadTimeout" in result.stopped
+
+
+def test_fetch_notices_does_not_call_an_empty_first_page_the_end_of_the_list(tmp_path):
+    result, _, _ = _fetch(tmp_path, {}, n=5)  # 200인데 공고 행이 없다: 차단 페이지나 마크업 변경
+    assert result.fetched == []
+    assert result.stopped != "목록 끝"
+    assert "비어 있음" in result.stopped
