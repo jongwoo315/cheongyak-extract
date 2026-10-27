@@ -3,27 +3,44 @@ import sys
 from pathlib import Path
 
 from cheongyak_extract.fetch import make_client
+from cheongyak_extract.llm import make_ask, model_from_env
 from cheongyak_extract.measure import measure_normalize
-from cheongyak_extract.pipeline import run
+from cheongyak_extract.pipeline import evaluate, run
+
+RAW_DIR = Path("data/raw")
+LLM_CACHE = Path("data/llm")
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="cheongyak_extract")
     sub = parser.add_subparsers(dest="cmd", required=True)
-    p = sub.add_parser("run", help="수집부터 필드별 리포트까지 한 번에")
+    p = sub.add_parser(
+        "run", help="수집부터 LLM 추출·필드별 리포트까지 한 번에(OPENAI_API_KEY 필요)"
+    )
     p.add_argument("--n", type=int, default=3, help="처리할 공고 수")
+    p.add_argument("--out", type=Path, default=Path("reports/run.md"), help="리포트 경로")
+    e = sub.add_parser(
+        "eval", help="받아 둔 data/raw/<pbno>/만 읽어 리포트를 쓴다(청약홈 요청 없음)"
+    )
+    e.add_argument("--pbno", nargs="+", required=True, help="공고 번호")
+    e.add_argument("--out", type=Path, required=True, help="리포트 경로")
     sub.add_parser("measure-normalize", help="모의 추출값 24쌍의 일치 수를 정규화 전·후로 잰다")
     args = parser.parse_args(argv)
 
     if args.cmd == "measure-normalize":
         measure_normalize(
-            Path("data/raw"), Path("tests/fixtures/pdf_forms.json"), Path("reports/normalize.md")
+            RAW_DIR, Path("tests/fixtures/pdf_forms.json"), Path("reports/normalize.md")
         )
         return 0
 
+    ask = make_ask(model_from_env(), LLM_CACHE)
+    if args.cmd == "eval":
+        result = evaluate(args.pbno, RAW_DIR, ask, args.out)
+        return 0 if result.processed == len(args.pbno) else 1
+
     with make_client() as client:
-        result = run(args.n, client, Path("data/raw"), Path("reports/skeleton.md"))
-    # 정답 있음이 0이면 정확도·빈 칸이 `—`로 나와 stub 동작을 확인할 수 없다. 통과로 치지 않는다.
+        result = run(args.n, client, RAW_DIR, args.out, ask)
+    # 정답 있음이 0이면 정확도·빈 칸이 `—`로 나와 추출 결과를 읽을 수 없다. 통과로 치지 않는다.
     no_truth = [m.field for m in result.metrics if m.with_truth == 0]
     if no_truth:
         print(f"정답 있음이 0인 필드: {', '.join(no_truth)}", file=sys.stderr)
