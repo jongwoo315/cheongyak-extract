@@ -36,13 +36,13 @@ class SkipDoc(Exception):
     """이 공고만 건너뛴다. 메시지가 리포트에 적힌다."""
 
 
-def _analyze(pbno: str, out: Path, ask: Ask) -> Doc:
+def _analyze(pbno: str, out: Path, ask: Ask, sort: bool = True) -> Doc:
     """out(data/raw/<pbno>/)의 detail.html·notice.pdf로 추출하고 Doc을 만든다."""
     for name in ("detail.html", "notice.pdf"):
         if not (out / name).exists():
             raise SkipDoc(f"{name} 없음")
     try:
-        text = pages(out / "notice.pdf")
+        text = pages(out / "notice.pdf", sort=sort)
     except Exception as e:  # 열기·텍스트 뽑기 실패가 한 가지 예외가 아니다(#146 리뷰 13)
         raise SkipDoc(f"PDF를 열 수 없음: {e}") from e
     if not any(t.strip() for t in text):
@@ -113,13 +113,15 @@ def run(
     return _report("run 리포트", docs, skipped, report_path, ask)
 
 
-def evaluate(pbnos: list[str], raw_dir: Path, ask: Ask, report_path: Path) -> Result:
+def evaluate(
+    pbnos: list[str], raw_dir: Path, ask: Ask, report_path: Path, sort: bool = True
+) -> Result:
     """이미 받아 둔 data/raw/<pbno>/만 읽는다. 청약홈에 요청하지 않는다."""
     docs: list[Doc] = []
     skipped: list[tuple[str, str]] = []
     for pbno in pbnos:
         try:
-            docs.append(_analyze(pbno, raw_dir / pbno, ask))
+            docs.append(_analyze(pbno, raw_dir / pbno, ask, sort))
         except SkipDoc as e:
             skipped.append((pbno, f"{raw_dir / pbno}: {e}"))
     return _report("eval 리포트", docs, skipped, report_path, ask)

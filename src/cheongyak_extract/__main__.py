@@ -24,6 +24,9 @@ def main(argv: list[str] | None = None) -> int:
     )
     e.add_argument("--pbno", nargs="+", required=True, help="공고 번호")
     e.add_argument("--out", type=Path, required=True, help="리포트 경로")
+    e.add_argument(
+        "--no-sort", action="store_true", help="PDF 텍스트를 pymupdf 기본 순서로 뽑는다(비교용)"
+    )
     f = sub.add_parser("fetch", help="목록 N쪽부터 PDF 있는 공고를 n건 받는다(LLM 안 부름)")
     f.add_argument("--start-page", type=int, default=1, help="목록 시작 쪽")
     f.add_argument("--n", type=int, required=True, help="받을 공고 수")
@@ -48,7 +51,7 @@ def main(argv: list[str] | None = None) -> int:
 
     ask = make_ask(model_from_env(), LLM_CACHE)
     if args.cmd == "eval":
-        result = evaluate(args.pbno, RAW_DIR, ask, args.out)
+        result = evaluate(args.pbno, RAW_DIR, ask, args.out, sort=not args.no_sort)
         return 0 if result.processed == len(args.pbno) else 1
 
     with make_client() as client:

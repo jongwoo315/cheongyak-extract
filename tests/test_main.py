@@ -58,8 +58,8 @@ def test_run_passes_n_default_paths_and_llm_ask(monkeypatch, fake_llm):
 def test_eval_reads_only_the_given_notices_offline(monkeypatch):
     calls = []
 
-    def spy(pbnos, raw_dir, ask, report_path):
-        calls.append((pbnos, str(raw_dir), ask, str(report_path)))
+    def spy(pbnos, raw_dir, ask, report_path, sort=True):
+        calls.append((pbnos, str(raw_dir), ask, str(report_path), sort))
         return Result([], len(pbnos), [])
 
     def no_network():
@@ -69,11 +69,13 @@ def test_eval_reads_only_the_given_notices_offline(monkeypatch):
     monkeypatch.setattr(cli, "make_client", no_network)
     args = ["eval", "--pbno", "2026000518", "2026000530", "--out", "reports/x.md"]
     assert cli.main(args) == 0
-    assert calls == [(["2026000518", "2026000530"], "data/raw", ASK, "reports/x.md")]
+    assert calls == [(["2026000518", "2026000530"], "data/raw", ASK, "reports/x.md", True)]
+    assert cli.main([*args, "--no-sort"]) == 0
+    assert calls[-1][-1] is False
 
 
 def test_eval_exits_1_when_some_notice_was_skipped(monkeypatch):
-    monkeypatch.setattr(cli, "evaluate", lambda *a: Result([], 1, [("B", "notice.pdf 없음")]))
+    monkeypatch.setattr(cli, "evaluate", lambda *a, **k: Result([], 1, [("B", "notice.pdf 없음")]))
     assert cli.main(["eval", "--pbno", "A", "B", "--out", "x.md"]) == 1
 
 

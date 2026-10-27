@@ -177,7 +177,7 @@ def test_run_skips_scanned_pdf_without_calling_llm(tmp_path):
 
 
 def test_run_skips_announcement_when_pdf_text_extraction_raises_other_errors(tmp_path, monkeypatch):
-    def boom(path):
+    def boom(path, sort=True):
         raise RuntimeError("잘못된 쪽 트리")
 
     monkeypatch.setattr(pipeline, "pages", boom)
@@ -328,3 +328,19 @@ def test_evaluate_main_table_follows_the_default_rule(tmp_path, monkeypatch):
         out = tmp_path / f"{rule}.md"
         evaluate(["A1"], raw, ask, out)
         assert f"| 공급규모 | 1 | {accuracy} |" in out.read_text(encoding="utf-8")
+
+
+def test_evaluate_no_sort_reads_the_pdf_in_the_default_order(tmp_path, monkeypatch):
+    seen = []
+    real = pipeline.pages
+
+    def spy(path, sort=True):
+        seen.append(sort)
+        return real(path, sort=sort)
+
+    monkeypatch.setattr(pipeline, "pages", spy)
+    raw = tmp_path / "raw"
+    make_raw(raw, "A1", make_pdf_bytes())
+    evaluate(["A1"], raw, scale_ask, tmp_path / "a.md")
+    evaluate(["A1"], raw, scale_ask, tmp_path / "b.md", sort=False)
+    assert seen == [True, False]
