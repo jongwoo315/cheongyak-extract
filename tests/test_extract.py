@@ -248,6 +248,13 @@ def test_rule_c_blanks_when_neither_evidence_nor_value_is_on_the_page():
     assert c.blanked["공급규모"] == ex.NEITHER_IN_PAGE
 
 
+def test_rule_c_looks_for_the_value_only_on_the_page_the_response_names():
+    # 358세대는 2쪽에만 있다. 1쪽이라고 적은 응답은 근거도 값도 그 쪽에 없으므로 비운다
+    c = run_rule("C", 공급규모=cell("358세대", "엉뚱한 근거", 1))
+    assert c.fields["공급규모"].value is None
+    assert c.blanked["공급규모"] == ex.NEITHER_IN_PAGE
+
+
 @pytest.mark.parametrize("rule", ex.RULES)
 def test_structural_rules_apply_to_every_rule(rule):
     out = run_rule(
