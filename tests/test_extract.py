@@ -183,3 +183,86 @@ def test_error_raised_by_ask_is_not_swallowed_as_bad_json():
 
     with pytest.raises(json.JSONDecodeError):
         ex.extract(["p"], ask)
+
+
+# --- 값을 남기는 조건 A·B·C안 (설계 §값을 남기는 조건) ---
+
+RULE_PAGES = ["구분\n사업주체 (주)가나건설\n시공사 (주)다라건설", "일반분양 358세대 공급"]
+
+
+def run_rule(rule, **cells):
+    return extract(RULE_PAGES, lambda prompt: respond(**cells), rule=rule)
+
+
+def test_rules_are_a_b_c_and_a_is_the_default():
+    assert ex.RULES == ("A", "B", "C")
+    both_ok = respond(공급규모=cell("358세대", "일반분양 358세대", 2))
+    assert extract(RULE_PAGES, lambda p: both_ok) == extract(RULE_PAGES, lambda p: both_ok, "A")
+
+
+def test_unknown_rule_is_a_value_error():
+    with pytest.raises(ValueError):
+        extract(RULE_PAGES, lambda p: respond(), rule="D")
+
+
+@pytest.mark.parametrize("rule", ex.RULES)
+def test_every_rule_keeps_a_value_that_is_inside_an_evidence_that_is_on_the_page(rule):
+    out = run_rule(rule, 공급규모=cell("358세대", "일반분양 358\n세대", 2))
+    assert out.fields["공급규모"].value == "358세대"
+    assert "공급규모" not in out.blanked
+
+
+def test_rule_a_keeps_a_value_that_is_not_in_its_evidence_but_b_blanks_it():
+    # 표 머리글만 근거로 준 값(첫 시도 리뷰 지적 3): 근거는 그 쪽에 있고 값은 근거 안에 없다
+    cells = {"시행사": cell("(주)가나건설", "구분", 1)}
+    assert run_rule("A", **cells).fields["시행사"].value == "(주)가나건설"
+    assert run_rule("C", **cells).fields["시행사"].value == "(주)가나건설"
+    b = run_rule("B", **cells)
+    assert b.fields["시행사"] == Extraction(None, None, None)
+    assert b.blanked["시행사"] == ex.VALUE_NOT_IN_EVIDENCE
+
+
+def test_rule_c_keeps_a_value_on_the_page_when_its_evidence_is_not_but_a_and_b_blank_it():
+    cells = {"시공사": cell("(주)다라건설", "시공사는 (주)다라건설이다", 1)}
+    for rule in ("A", "B"):
+        out = run_rule(rule, **cells)
+        assert out.fields["시공사"].value is None
+        assert out.blanked["시공사"] == ex.NOT_IN_PAGE
+    c = run_rule("C", **cells)
+    assert c.fields["시공사"] == Extraction("(주)다라건설", "시공사는 (주)다라건설이다", 1)
+    assert "시공사" not in c.blanked
+
+
+def test_rule_c_compares_the_value_with_the_page_ignoring_whitespace():
+    c = run_rule("C", 공급규모=cell("358 세대", "엉뚱한 근거", 2))
+    assert c.fields["공급규모"].value == "358 세대"
+
+
+def test_rule_c_blanks_when_neither_evidence_nor_value_is_on_the_page():
+    c = run_rule("C", 공급규모=cell("999세대", "일반분양 999세대", 2))
+    assert c.fields["공급규모"].value is None
+    assert c.blanked["공급규모"] == ex.NEITHER_IN_PAGE
+
+
+@pytest.mark.parametrize("rule", ex.RULES)
+def test_structural_rules_apply_to_every_rule(rule):
+    out = run_rule(
+        rule, 공급규모=cell("358세대", "일반분양 358세대", 9), 시행사=cell("가", "가", None)
+    )
+    assert out.blanked["공급규모"] == ex.BAD_PAGE
+    assert out.blanked["시행사"] == ex.NO_EVIDENCE
+
+
+def test_extract_rules_asks_once_and_returns_one_result_per_rule():
+    calls = []
+    body = respond(시행사=cell("(주)가나건설", "구분", 1))
+
+    def ask(prompt):
+        calls.append(prompt)
+        return body
+
+    out = ex.extract_rules(RULE_PAGES, ask)
+    assert len(calls) == 1
+    assert tuple(out) == ex.RULES
+    assert out["A"].fields["시행사"].value == "(주)가나건설"
+    assert out["B"].fields["시행사"].value is None

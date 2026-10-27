@@ -67,10 +67,19 @@ KIND = {
 NO_VALUE = "값이 비어 있음"  # 규칙 1
 NO_EVIDENCE = "근거 문장이나 쪽 번호가 없음"  # 규칙 2
 BAD_PAGE = "쪽 번호가 범위 밖"  # 규칙 3
-NOT_IN_PAGE = "근거 문장이 그 쪽에 없음"  # 규칙 4
+NOT_IN_PAGE = "근거 문장이 그 쪽에 없음"  # 규칙 4 (A안·B안)
+VALUE_NOT_IN_EVIDENCE = "값이 근거 문장 안에 없음"  # B안의 추가 조건
+NEITHER_IN_PAGE = "근거 문장도 값도 그 쪽에 없음"  # 규칙 4 (C안)
 NO_KEY = "응답에 이 필드 키가 없음"  # 규칙 5
 BAD_JSON = "응답이 JSON 객체가 아님"
 BAD_CELL = "응답 칸의 모양이 다름"
+
+# 규칙 4를 대신하는 값을 남기는 조건(설계 §값을 남기는 조건). 같은 응답에 셋을 모두 걸어 비교한다.
+#   A: 근거 문장이 그 쪽에 있다.  B: A + 값이 근거 문장 안에 있다.
+#   C: 근거 문장이 그 쪽에 있거나, 값이 그 쪽에 있다.
+RULES = ("A", "B", "C")
+# 이 조건으로 값을 비운 이유. 구조 규칙(1·2·3·5)이나 응답 모양 오류와 구분한다
+RULE_BLANKS = (NOT_IN_PAGE, VALUE_NOT_IN_EVIDENCE, NEITHER_IN_PAGE)
 
 EMPTY = Extraction(None, None, None)
 
@@ -149,7 +158,11 @@ def _text(v: object) -> bool:
     return v is None or isinstance(v, str)
 
 
-def _check(raw: object, pages: list[str]) -> tuple[Extraction, str | None]:
+def _contains(text: str, part: str) -> bool:
+    return _squash(part) in _squash(text)
+
+
+def _check(raw: object, pages: list[str], rule: str) -> tuple[Extraction, str | None]:
     """응답 칸 하나를 거른다. (결과, 비운 이유)."""
     if not isinstance(raw, dict) or not _text(raw.get("value")) or not _text(raw.get("evidence")):
         return EMPTY, BAD_CELL
@@ -160,24 +173,41 @@ def _check(raw: object, pages: list[str]) -> tuple[Extraction, str | None]:
         return EMPTY, NO_EVIDENCE
     if not 1 <= page <= len(pages):
         return EMPTY, BAD_PAGE
-    if not grounded(evidence, pages[page - 1]):
+    text = pages[page - 1]
+    if rule == "C":
+        if not (grounded(evidence, text) or _contains(text, value)):
+            return EMPTY, NEITHER_IN_PAGE
+    elif not grounded(evidence, text):
         return EMPTY, NOT_IN_PAGE
+    elif rule == "B" and not _contains(evidence, value):
+        return EMPTY, VALUE_NOT_IN_EVIDENCE
     return Extraction(value.strip(), evidence, page), None
 
 
-def extract(pages: list[str], ask: Ask) -> Extracted:
-    """LLM을 한 번 불러 8개 필드를 받고, 근거를 못 찾는 칸은 비운다."""
+def extract_rules(pages: list[str], ask: Ask) -> dict[str, Extracted]:
+    """LLM을 한 번 불러 8개 필드를 받고, 같은 응답에 A·B·C안을 각각 걸어 결과를 돌려준다."""
     raw = ask(build_prompt(pages))  # 호출 쪽 예외를 응답 모양 오류로 삼키지 않는다
     try:
         data = json.loads(raw)
     except json.JSONDecodeError:
         data = None
-    if not isinstance(data, dict):
-        return Extracted({f: EMPTY for f in FIELDS}, {f: BAD_JSON for f in FIELDS})
-    fields: dict[str, Extraction] = {}
-    blanked: dict[str, str] = {}
-    for f in FIELDS:
-        fields[f], why = _check(data[f], pages) if f in data else (EMPTY, NO_KEY)
-        if why:
-            blanked[f] = why
-    return Extracted(fields, blanked)
+    out = {}
+    for rule in RULES:
+        if not isinstance(data, dict):
+            out[rule] = Extracted({f: EMPTY for f in FIELDS}, {f: BAD_JSON for f in FIELDS})
+            continue
+        fields: dict[str, Extraction] = {}
+        blanked: dict[str, str] = {}
+        for f in FIELDS:
+            fields[f], why = _check(data[f], pages, rule) if f in data else (EMPTY, NO_KEY)
+            if why:
+                blanked[f] = why
+        out[rule] = Extracted(fields, blanked)
+    return out
+
+
+def extract(pages: list[str], ask: Ask, rule: str = "A") -> Extracted:
+    """LLM을 한 번 불러 8개 필드를 받고, rule안으로 근거를 못 찾는 칸을 비운다."""
+    if rule not in RULES:
+        raise ValueError(f"값을 남기는 조건은 {RULES} 중 하나다: {rule!r}")
+    return extract_rules(pages, ask)[rule]
