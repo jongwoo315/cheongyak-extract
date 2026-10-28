@@ -87,6 +87,17 @@ def test_eval_text_option_picks_the_text_modes(monkeypatch):
         cli.main([*args, "--text", "T2"])
 
 
+def test_eval_exit_code_counts_one_result_per_notice_and_text_mode(monkeypatch):
+    args = ["eval", "--pbno", "A", "--out", "x.md", "--text", "T0", "T1"]
+    monkeypatch.setattr(cli, "evaluate", lambda *a, **k: Result([], 2, []))
+    assert cli.main(args) == 0
+    monkeypatch.setattr(cli, "evaluate", lambda *a, **k: Result([], 1, [("A", "T1: 건너뜀")]))
+    assert cli.main(args) == 1
+    # 같은 방식을 두 번 주면 한 번으로 센다
+    monkeypatch.setattr(cli, "evaluate", lambda *a, **k: Result([], 1, []))
+    assert cli.main(["eval", "--pbno", "A", "--out", "x.md", "--text", "T0", "T0"]) == 0
+
+
 def test_eval_exits_1_when_some_notice_was_skipped(monkeypatch):
     monkeypatch.setattr(cli, "evaluate", lambda *a, **k: Result([], 1, [("B", "notice.pdf 없음")]))
     assert cli.main(["eval", "--pbno", "A", "B", "--out", "x.md"]) == 1
