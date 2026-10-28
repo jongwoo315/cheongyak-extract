@@ -46,6 +46,8 @@ class LlmAsk:
                 hit = json.loads(path.read_text(encoding="utf-8"))
                 usage = Usage(hit["input_tokens"], hit["output_tokens"])
                 response = hit["response"]
+                if not isinstance(response, str):
+                    raise TypeError("response가 문자열이 아님")
             except (ValueError, KeyError, TypeError):  # 깨진 캐시는 미스로 보고 다시 부른다
                 pass
             else:

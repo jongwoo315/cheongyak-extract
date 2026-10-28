@@ -116,7 +116,16 @@ def test_model_comes_from_env_with_default(monkeypatch):
     assert llm.model_from_env() == "gpt-5.5"
 
 
-@pytest.mark.parametrize("broken", ["{trunc", "{}", '{"response": 1, "input_tokens": "x"}', "[]"])
+@pytest.mark.parametrize(
+    "broken",
+    [
+        "{trunc",
+        "{}",
+        '{"response": 1, "input_tokens": "x"}',
+        '{"response": 1, "input_tokens": 1, "output_tokens": 1}',  # response만 문자열이 아니다
+        "[]",
+    ],
+)
 def test_broken_cache_file_is_a_miss_and_is_rewritten(tmp_path, broken):
     key = hashlib.sha256(b"m1\np").hexdigest()
     (tmp_path / f"{key}.json").write_text(broken, encoding="utf-8")
