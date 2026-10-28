@@ -7,6 +7,7 @@ dependencies = [
     "httpx>=0.28",
     "pymupdf>=1.28.2",
     "beautifulsoup4>=4.12",
+    "openai>=3.37.0",
 ]
 
 [dependency-groups]

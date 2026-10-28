@@ -5,6 +5,7 @@ from pathlib import Path
 import pymupdf
 
 
-def pages(path: Path) -> list[str]:
+def pages(path: Path, sort: bool = True) -> list[str]:
+    """sort=True는 읽는 순서로 준다. sort=False(pymupdf 기본)는 표 칸 글자를 흩어 놓는다."""
     with pymupdf.open(path) as doc:
-        return [page.get_text() for page in doc]
+        return [page.get_text(sort=sort) for page in doc]
