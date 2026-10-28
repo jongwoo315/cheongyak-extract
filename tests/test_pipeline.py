@@ -228,6 +228,16 @@ def test_evaluate_reads_only_raw_dir_and_writes_report(tmp_path, capsys):
     assert capsys.readouterr().out.strip() == text.strip()
 
 
+def test_evaluate_with_two_modes_prefixes_each_skip_reason_with_its_mode(tmp_path):
+    out = tmp_path / "e.md"
+    result = evaluate(["MISSING"], tmp_path / "raw", scale_ask, out, modes=("T0", "T1"))
+    assert result.processed == 0
+    assert [(p, why.split(":")[0]) for p, why in result.skipped] == [
+        ("MISSING", "T0"),
+        ("MISSING", "T1"),
+    ]
+
+
 def test_evaluate_skips_announcement_without_pdf_or_detail_and_says_why(tmp_path):
     raw = tmp_path / "raw"
     make_raw(raw, "OK", make_pdf_bytes())
