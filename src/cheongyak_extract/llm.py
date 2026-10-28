@@ -48,6 +48,9 @@ class LlmAsk:
                 response = hit["response"]
                 if not isinstance(response, str):
                     raise TypeError("response가 문자열이 아님")
+                if usage.input_tokens * MAX_CHARS_PER_TOKEN < len(prompt):
+                    # 입력을 읽지 않은 응답(2578542 전에 캐시된 것)은 재생하지 않는다
+                    raise ValueError("입력 토큰이 프롬프트 길이에 비해 너무 적음")
             except (ValueError, KeyError, TypeError):  # 깨진 캐시는 미스로 보고 다시 부른다
                 pass
             else:

@@ -176,6 +176,18 @@ def test_response_that_read_almost_none_of_the_prompt_is_retried_and_never_cache
     assert again(LONG) == '{"ok": 1}'
 
 
+def test_cached_response_that_read_almost_none_of_the_prompt_is_not_replayed(tmp_path):
+    # 2578542 전에 캐시된 590토큰 응답이 남아 있으면 같은 8칸 null이 계속 재생된다
+    key = hashlib.sha256(f"m1\n{LONG}".encode()).hexdigest()
+    (tmp_path / f"{key}.json").write_text(
+        '{"response": "{}", "input_tokens": 590, "output_tokens": 9}', encoding="utf-8"
+    )
+    client = SequenceClient([('{"ok": 1}', 60_000)])
+    ask = llm.make_ask("m1", tmp_path, client)
+    assert ask(LONG) == '{"ok": 1}' and client.calls == 1
+    assert ask.last_usage == Usage(60_000, 7)
+
+
 def test_response_that_keeps_reading_almost_none_of_the_prompt_ends_as_bad_response(tmp_path):
     client = SequenceClient([("x", 590)] * llm.MAX_ATTEMPTS)
     with pytest.raises(llm.BadResponse, match="입력 토큰"):
