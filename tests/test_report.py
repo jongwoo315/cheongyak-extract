@@ -7,9 +7,11 @@ from cheongyak_extract.report import (
     metrics,
     render_field_rates,
     render_markdown,
+    render_mode_table,
     render_rule_table,
     render_shape_errors,
     render_summary,
+    render_token_ratio,
     render_usage,
     render_wrong,
     with_rule,
@@ -281,3 +283,39 @@ def test_summary_counts_the_new_rule_blanks_as_given_then_blanked():
     assert "LLM이 값을 준 3칸 중 근거를 확인 못해 비운 칸 2 (67%)" in render_summary(docs, ("f",))
     (m,) = metrics(docs, ("f",))
     assert m.ungrounded == 2
+
+
+# --- 텍스트 방식 T0·T1 비교 ---
+
+
+def mode_doc(pbno, company_wrong, tokens):
+    """시행사 하나. company_wrong이면 정답과 다른 값을 채운 칸이다."""
+    value = "다른회사" if company_wrong else "A"
+    e = Extraction(value, "foo", 1)
+    rules = {r: ex.Extracted({"시행사": e}, {}) for r in ex.RULES}
+    return Doc(pbno, {"시행사": "A"}, rules["C"].fields, ["foo"], {}, Usage(tokens, 5), rules)
+
+
+def test_mode_table_puts_modes_side_by_side_with_company_wrong_cells_and_input_tokens():
+    by_mode = {
+        "T0": [mode_doc("a", True, 1000), mode_doc("b", True, 3000)],
+        "T1": [mode_doc("a", False, 1500), mode_doc("b", True, 4500)],
+    }
+    md = render_mode_table(by_mode, ("시행사",))
+    head = "| 방식 | 안 | 정답 있는 칸 | 맞음 | 비움 | 틀리게 채움 |"
+    assert head + " 시행사·시공사 틀리게 채움 | 입력 토큰 합계 |" in md
+    assert "| T0 | C | 2 | 0 (0%) | 0 (0%) | 2 (100%) | 2 | 4,000 |" in md
+    assert "| T1 | C | 2 | 1 (50%) | 0 (0%) | 1 (50%) | 1 | 6,000 |" in md
+    assert len(md.splitlines()) == 2 + 2 * len(ex.RULES)  # 머리글 2줄 + 방식 × 안
+
+
+def test_mode_table_counts_only_docs_the_mode_processed():
+    md = render_mode_table({"T0": [mode_doc("a", False, 1000)], "T1": []}, ("시행사",))
+    assert "| T1 | C | 0 | 0 (—) | 0 (—) | 0 (—) | 0 | 0 |" in md
+
+
+def test_token_ratio_is_t1_over_t0_and_empty_without_both_modes():
+    by_mode = {"T0": [mode_doc("a", False, 1000)], "T1": [mode_doc("a", False, 1500)]}
+    assert "T1 ÷ T0 = 1.50배" in render_token_ratio(by_mode)
+    assert render_token_ratio({"T0": by_mode["T0"]}) == ""
+    assert render_token_ratio({"T0": [mode_doc("a", False, 0)], "T1": by_mode["T1"]}) == ""

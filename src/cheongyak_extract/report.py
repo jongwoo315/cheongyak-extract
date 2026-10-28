@@ -268,3 +268,53 @@ def render_field_rates(docs: list[Doc], fields: tuple[str, ...]) -> str:
         per_rule = [_Counts([with_rule(d, r) for d in ruled], (f,)) for r in RULES]
         rows.append((f, per_rule[0].n, *(_count_pct(c.right, c.n) for c in per_rule)))
     return _table(("필드", "정답 있는 칸", *(f"{r}안 맞음" for r in RULES)), rows)
+
+
+COMPANY_FIELDS = ("시행사", "시공사")
+
+
+def _input_tokens(docs: list[Doc]) -> int:
+    return sum(d.usage.input_tokens for d in docs if d.usage)
+
+
+def render_mode_table(by_mode: dict[str, list[Doc]], fields: tuple[str, ...]) -> str:
+    """텍스트 방식(T0·T1)마다 A·B·C안 칸 수, 회사 필드의 틀리게 채운 칸, 입력 토큰 합계."""
+    rows = []
+    for mode, docs in by_mode.items():
+        for rule in RULES:
+            ruled = [with_rule(d, rule) for d in docs if d.rules]
+            c = _Counts(ruled, fields)
+            company = _Counts(ruled, tuple(f for f in COMPANY_FIELDS if f in fields))
+            rows.append(
+                (
+                    mode,
+                    rule,
+                    c.n,
+                    _count_pct(c.right, c.n),
+                    _count_pct(c.blank, c.n),
+                    _count_pct(c.wrong, c.n),
+                    company.wrong,
+                    f"{_input_tokens(docs):,}",
+                )
+            )
+    head = (
+        "방식",
+        "안",
+        "정답 있는 칸",
+        "맞음",
+        "비움",
+        "틀리게 채움",
+        "시행사·시공사 틀리게 채움",
+        "입력 토큰 합계",
+    )
+    return _table(head, rows)
+
+
+def render_token_ratio(by_mode: dict[str, list[Doc]]) -> str:
+    """T1 입력 토큰 ÷ T0 입력 토큰. 두 방식이 모두 없거나 T0 토큰을 모르면 빈 문자열."""
+    if "T0" not in by_mode or "T1" not in by_mode:
+        return ""
+    t0 = _input_tokens(by_mode["T0"])
+    if not t0:
+        return ""
+    return f"입력 토큰 T1 ÷ T0 = {_input_tokens(by_mode['T1']) / t0:.2f}배\n"

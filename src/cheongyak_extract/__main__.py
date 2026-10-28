@@ -5,6 +5,7 @@ from pathlib import Path
 from cheongyak_extract.fetch import fetch_notices, make_client
 from cheongyak_extract.llm import make_ask, model_from_env
 from cheongyak_extract.measure import measure_normalize
+from cheongyak_extract.pdf_text import TEXT_MODES
 from cheongyak_extract.pipeline import evaluate, run
 
 RAW_DIR = Path("data/raw")
@@ -26,6 +27,13 @@ def main(argv: list[str] | None = None) -> int:
     e.add_argument("--out", type=Path, required=True, help="리포트 경로")
     e.add_argument(
         "--no-sort", action="store_true", help="PDF 텍스트를 pymupdf 기본 순서로 뽑는다(비교용)"
+    )
+    e.add_argument(
+        "--text",
+        nargs="+",
+        choices=TEXT_MODES,
+        default=["T0"],
+        help="PDF 텍스트 방식. T0=sort=True 텍스트, T1=T0 + 쪽의 표 markdown. 둘이면 나란히 쓴다",
     )
     f = sub.add_parser("fetch", help="목록 N쪽부터 PDF 있는 공고를 n건 받는다(LLM 안 부름)")
     f.add_argument("--start-page", type=int, default=1, help="목록 시작 쪽")
@@ -51,8 +59,9 @@ def main(argv: list[str] | None = None) -> int:
 
     ask = make_ask(model_from_env(), LLM_CACHE)
     if args.cmd == "eval":
-        result = evaluate(args.pbno, RAW_DIR, ask, args.out, sort=not args.no_sort)
-        return 0 if result.processed == len(args.pbno) else 1
+        modes = tuple(dict.fromkeys(args.text))
+        result = evaluate(args.pbno, RAW_DIR, ask, args.out, sort=not args.no_sort, modes=modes)
+        return 0 if result.processed == len(args.pbno) * len(modes) else 1
 
     with make_client() as client:
         result = run(args.n, client, RAW_DIR, args.out, ask)

@@ -17,9 +17,11 @@ from cheongyak_extract.report import (
     metrics,
     render_field_rates,
     render_markdown,
+    render_mode_table,
     render_rule_table,
     render_shape_errors,
     render_summary,
+    render_token_ratio,
     render_usage,
     render_wrong,
 )
@@ -36,13 +38,13 @@ class SkipDoc(Exception):
     """이 공고만 건너뛴다. 메시지가 리포트에 적힌다."""
 
 
-def _analyze(pbno: str, out: Path, ask: Ask, sort: bool = True) -> Doc:
-    """out(data/raw/<pbno>/)의 detail.html·notice.pdf로 추출하고 Doc을 만든다."""
+def _analyze(pbno: str, out: Path, ask: Ask, sort: bool = True, mode: str = "T0") -> Doc:
+    """out(data/raw/<pbno>/)의 detail.html·notice.pdf로 추출하고 Doc을 만든다. mode는 T0·T1."""
     for name in ("detail.html", "notice.pdf"):
         if not (out / name).exists():
             raise SkipDoc(f"{name} 없음")
     try:
-        text = pages(out / "notice.pdf", sort=sort)
+        text = pages(out / "notice.pdf", sort=sort, tables=mode == "T1")
     except Exception as e:  # 열기·텍스트 뽑기 실패가 한 가지 예외가 아니다(#146 리뷰 13)
         raise SkipDoc(f"PDF를 열 수 없음: {e}") from e
     if not any(t.strip() for t in text):
@@ -59,14 +61,8 @@ def _analyze(pbno: str, out: Path, ask: Ask, sort: bool = True) -> Doc:
     return Doc(pbno, truth, got.fields, text, got.blanked, usage, by_rule)
 
 
-def _report(
-    title: str, docs: list[Doc], skipped: list[tuple[str, str]], report_path: Path, ask: Ask
-) -> Result:
-    rows = metrics(docs, FIELDS)
-    md = f"# {title}\n\n공고 {len(docs)}건: {', '.join(d.pbno for d in docs)}\n\n"
-    if model := getattr(ask, "model", None):
-        md += f"모델: {model}\n\n"
-    md += render_markdown(rows) + "\n"
+def _body(docs: list[Doc], ask: Ask) -> str:
+    md = render_markdown(metrics(docs, FIELDS)) + "\n"
     if DEFAULT_RULE == "C":
         md += (
             "표의 「지어낸 값」·「근거 위치 맞음」은 근거 문장이 PDF에 없어도 값이 그 쪽에 있어 "
@@ -79,12 +75,35 @@ def _report(
     md += "\n틀리게 채운 칸:\n\n" + render_wrong(docs, FIELDS)
     md += render_shape_errors(docs)
     md += "\n토큰:\n\n" + render_usage(docs)
+    return md
+
+
+def _report(
+    title: str,
+    by_mode: dict[str, list[Doc]],
+    skipped: list[tuple[str, str]],
+    report_path: Path,
+    ask: Ask,
+) -> Result:
+    """by_mode: 텍스트 방식 -> Doc들. 방식이 둘 이상이면 방식마다 절을 나눈다."""
+    docs = [d for ds in by_mode.values() for d in ds]
+    pbnos = list(dict.fromkeys(d.pbno for d in docs))
+    md = f"# {title}\n\n공고 {len(pbnos)}건: {', '.join(pbnos)}\n\n"
+    if model := getattr(ask, "model", None):
+        md += f"모델: {model}\n\n"
+    md += "텍스트 방식별 결과:\n\n" + render_mode_table(by_mode, FIELDS)
+    md += render_token_ratio(by_mode) + "\n"
+    for mode, mode_docs in by_mode.items():
+        if len(by_mode) > 1:
+            md += f"## {mode}\n\n"
+        md += _body(mode_docs, ask)
+        md += "\n"
     if skipped:
-        md += "\n건너뛴 공고:\n\n" + "".join(f"- {pbno}: {why}\n" for pbno, why in skipped)
+        md += "건너뛴 공고:\n\n" + "".join(f"- {pbno}: {why}\n" for pbno, why in skipped)
     report_path.parent.mkdir(parents=True, exist_ok=True)
     report_path.write_text(md, encoding="utf-8")
     print(md)
-    return Result(rows, len(docs), skipped)
+    return Result(metrics(docs, FIELDS), len(docs), skipped)
 
 
 def run(
@@ -116,18 +135,28 @@ def run(
             docs.append(_analyze(pbno, out, ask))
         except SkipDoc as e:
             skipped.append((pbno, str(e)))
-    return _report("run 리포트", docs, skipped, report_path, ask)
+    return _report("run 리포트", {"T0": docs}, skipped, report_path, ask)
 
 
 def evaluate(
-    pbnos: list[str], raw_dir: Path, ask: Ask, report_path: Path, sort: bool = True
+    pbnos: list[str],
+    raw_dir: Path,
+    ask: Ask,
+    report_path: Path,
+    sort: bool = True,
+    modes: tuple[str, ...] = ("T0",),
 ) -> Result:
-    """이미 받아 둔 data/raw/<pbno>/만 읽는다. 청약홈에 요청하지 않는다."""
-    docs: list[Doc] = []
+    """이미 받아 둔 data/raw/<pbno>/만 읽는다. 청약홈에 요청하지 않는다.
+
+    modes의 텍스트 방식마다 같은 공고를 따로 추출해 한 리포트에 나란히 쓴다.
+    """
+    by_mode: dict[str, list[Doc]] = {m: [] for m in modes}
     skipped: list[tuple[str, str]] = []
     for pbno in pbnos:
-        try:
-            docs.append(_analyze(pbno, raw_dir / pbno, ask, sort))
-        except SkipDoc as e:
-            skipped.append((pbno, f"{raw_dir / pbno}: {e}"))
-    return _report("eval 리포트", docs, skipped, report_path, ask)
+        for mode in modes:
+            try:
+                by_mode[mode].append(_analyze(pbno, raw_dir / pbno, ask, sort, mode))
+            except SkipDoc as e:
+                why = f"{raw_dir / pbno}: {e}"
+                skipped.append((pbno, f"{mode}: {why}" if len(modes) > 1 else why))
+    return _report("eval 리포트", by_mode, skipped, report_path, ask)

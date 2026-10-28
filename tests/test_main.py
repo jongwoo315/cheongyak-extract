@@ -58,8 +58,8 @@ def test_run_passes_n_default_paths_and_llm_ask(monkeypatch, fake_llm):
 def test_eval_reads_only_the_given_notices_offline(monkeypatch):
     calls = []
 
-    def spy(pbnos, raw_dir, ask, report_path, sort=True):
-        calls.append((pbnos, str(raw_dir), ask, str(report_path), sort))
+    def spy(pbnos, raw_dir, ask, report_path, sort=True, modes=("T0",)):
+        calls.append((pbnos, str(raw_dir), ask, str(report_path), sort, modes))
         return Result([], len(pbnos), [])
 
     def no_network():
@@ -69,9 +69,22 @@ def test_eval_reads_only_the_given_notices_offline(monkeypatch):
     monkeypatch.setattr(cli, "make_client", no_network)
     args = ["eval", "--pbno", "2026000518", "2026000530", "--out", "reports/x.md"]
     assert cli.main(args) == 0
-    assert calls == [(["2026000518", "2026000530"], "data/raw", ASK, "reports/x.md", True)]
+    assert calls == [(["2026000518", "2026000530"], "data/raw", ASK, "reports/x.md", True, ("T0",))]
     assert cli.main([*args, "--no-sort"]) == 0
-    assert calls[-1][-1] is False
+    assert calls[-1][4] is False
+
+
+def test_eval_text_option_picks_the_text_modes(monkeypatch):
+    calls = []
+    monkeypatch.setattr(
+        cli, "evaluate", lambda *a, **k: calls.append(k.get("modes")) or Result([], 1, [])
+    )
+    args = ["eval", "--pbno", "A", "--out", "x.md"]
+    cli.main([*args, "--text", "T0", "T1"])
+    cli.main([*args, "--text", "T1"])
+    assert calls == [("T0", "T1"), ("T1",)]
+    with pytest.raises(SystemExit):
+        cli.main([*args, "--text", "T2"])
 
 
 def test_eval_exits_1_when_some_notice_was_skipped(monkeypatch):

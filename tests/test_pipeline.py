@@ -177,7 +177,7 @@ def test_run_skips_scanned_pdf_without_calling_llm(tmp_path):
 
 
 def test_run_skips_announcement_when_pdf_text_extraction_raises_other_errors(tmp_path, monkeypatch):
-    def boom(path, sort=True):
+    def boom(path, sort=True, tables=False):
         raise RuntimeError("잘못된 쪽 트리")
 
     monkeypatch.setattr(pipeline, "pages", boom)
@@ -336,9 +336,9 @@ def test_evaluate_no_sort_reads_the_pdf_in_the_default_order(tmp_path, monkeypat
     seen = []
     real = pipeline.pages
 
-    def spy(path, sort=True):
+    def spy(path, sort=True, tables=False):
         seen.append(sort)
-        return real(path, sort=sort)
+        return real(path, sort=sort, tables=tables)
 
     monkeypatch.setattr(pipeline, "pages", spy)
     raw = tmp_path / "raw"
@@ -346,3 +346,75 @@ def test_evaluate_no_sort_reads_the_pdf_in_the_default_order(tmp_path, monkeypat
     evaluate(["A1"], raw, scale_ask, tmp_path / "a.md")
     evaluate(["A1"], raw, scale_ask, tmp_path / "b.md", sort=False)
     assert seen == [True, False]
+
+
+def table_pdf_bytes() -> bytes:
+    """본문 한 줄과, 머리글·값이 따로 그려진 표."""
+    doc = pymupdf.open()
+    page = doc.new_page()
+    page.insert_text((72, 72), "본문 문장", fontname="korea")
+    for r, row in enumerate(
+        [["구 분", "시행수탁자", "시공사"], ["상 호", "하나자산신탁", "가나건설"]]
+    ):
+        for c, text in enumerate(row):
+            rect = pymupdf.Rect(72 + c * 120, 100 + r * 30, 72 + (c + 1) * 120, 130 + r * 30)
+            page.draw_rect(rect, width=0.8)
+            page.insert_text((rect.x0 + 4, rect.y0 + 20), text, fontname="korea")
+    data = doc.tobytes()
+    doc.close()
+    return data
+
+
+class TableAsk(CountingAsk):
+    """시행사 근거를 표 markdown 줄에서만 복사하는 가짜 LLM. 프롬프트에 표가 있는지 기록한다."""
+
+    def __init__(self):
+        super().__init__()
+        self.saw_table = []
+
+    def __call__(self, prompt: str) -> str:
+        self.saw_table.append("|상 호|하나자산신탁|" in prompt)
+        self.last_usage = Usage(1000 * (1 + self.saw_table[-1]), 10)
+        body = {f: {"value": None, "evidence": None, "page": None} for f in FIELDS}
+        body["시행사"] = {"value": "하나자산신탁", "evidence": "|상 호|하나자산신탁|", "page": 1}
+        return json.dumps(body, ensure_ascii=False)
+
+
+def test_evaluate_runs_each_text_mode_and_gives_t1_the_table_markdown(tmp_path):
+    raw = tmp_path / "raw"
+    make_raw(raw, "A1", table_pdf_bytes())
+    ask = TableAsk()
+    out = tmp_path / "e.md"
+    result = evaluate(["A1"], raw, ask, out, modes=("T0", "T1"))
+    assert ask.saw_table == [False, True]
+    assert result.processed == 2  # 방식마다 공고 하나씩
+    text = out.read_text(encoding="utf-8")
+    assert "| 방식 | 안 | 정답 있는 칸 |" in text
+    assert "입력 토큰 T1 ÷ T0 = 2.00배" in text
+    assert "## T0" in text and "## T1" in text
+
+
+def test_evidence_check_uses_the_text_given_to_the_llm(tmp_path):
+    # 근거가 표 markdown 줄에만 있다: T0 텍스트에는 없어 비우고, T1은 남긴다
+    raw = tmp_path / "raw"
+    make_raw(raw, "A1", table_pdf_bytes())
+    out = tmp_path / "e.md"
+    evaluate(["A1"], raw, TableAsk(), out, modes=("T0", "T1"))
+    text = out.read_text(encoding="utf-8")
+    t0, t1 = text.split("## T0")[1].split("## T1")
+    # A안은 근거가 그 쪽 텍스트에 있어야 값을 남긴다: T0 텍스트에는 표 줄이 없어 비우고 T1은 남긴다
+    assert "| T0 | A | 8 | 0 (0%) | 8 (100%) | 0 (0%) | 0 |" in text
+    assert "| T1 | A | 8 | 0 (0%) | 7 (88%) | 1 (12%) | 1 |" in text
+    # 본 표(C안)에서도 근거 위치는 T1만 맞는다
+    assert "| 시행사 | 1 | 0% | 0% | 1 | 0 | 0% | 1 | 0 |" in t0
+    assert "| 시행사 | 1 | 0% | 0% | 0 | 0 | 100% | 1 | 0 |" in t1
+
+
+def test_single_text_mode_report_names_the_mode_and_lists_input_tokens(tmp_path):
+    raw = tmp_path / "raw"
+    make_raw(raw, "A1", make_pdf_bytes())
+    out = tmp_path / "e.md"
+    evaluate(["A1"], raw, CountingAsk(), out)
+    text = out.read_text(encoding="utf-8")
+    assert "| T0 | C | " in text and "| 1,000 |" in text
+    assert "T1 ÷ T0" not in text
