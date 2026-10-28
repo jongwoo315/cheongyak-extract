@@ -295,6 +295,7 @@ def render_mode_table(by_mode: dict[str, list[Doc]], fields: tuple[str, ...]) ->
                     _count_pct(c.wrong, c.n),
                     company.wrong,
                     f"{_input_tokens(docs):,}",
+                    len(docs),
                 )
             )
     head = (
@@ -306,15 +307,21 @@ def render_mode_table(by_mode: dict[str, list[Doc]], fields: tuple[str, ...]) ->
         "틀리게 채움",
         "시행사·시공사 틀리게 채움",
         "입력 토큰 합계",
+        "처리한 공고",
     )
     return _table(head, rows)
 
 
 def render_token_ratio(by_mode: dict[str, list[Doc]]) -> str:
-    """T1 입력 토큰 ÷ T0 입력 토큰. 두 방식이 모두 없거나 T0 토큰을 모르면 빈 문자열."""
+    """T1 입력 토큰 ÷ T0 입력 토큰. 두 방식이 모두 처리한 공고끼리만 비교한다.
+
+    한 방식이 큰 공고를 건너뛰면 합계가 어긋나므로 공통 공고로 좁힌다. 비교할 수 없으면 빈 문자열.
+    """
     if "T0" not in by_mode or "T1" not in by_mode:
         return ""
-    t0 = _input_tokens(by_mode["T0"])
+    common = {d.pbno for d in by_mode["T0"]} & {d.pbno for d in by_mode["T1"]}
+    t0 = _input_tokens([d for d in by_mode["T0"] if d.pbno in common])
     if not t0:
         return ""
-    return f"입력 토큰 T1 ÷ T0 = {_input_tokens(by_mode['T1']) / t0:.2f}배\n"
+    t1 = _input_tokens([d for d in by_mode["T1"] if d.pbno in common])
+    return f"입력 토큰 T1 ÷ T0 = {t1 / t0:.2f}배 (두 방식이 모두 처리한 공고 {len(common)}건)\n"

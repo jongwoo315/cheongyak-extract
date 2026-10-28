@@ -319,3 +319,23 @@ def test_token_ratio_is_t1_over_t0_and_empty_without_both_modes():
     assert "T1 ÷ T0 = 1.50배" in render_token_ratio(by_mode)
     assert render_token_ratio({"T0": by_mode["T0"]}) == ""
     assert render_token_ratio({"T0": [mode_doc("a", False, 0)], "T1": by_mode["T1"]}) == ""
+
+
+def test_mode_table_shows_how_many_notices_each_mode_processed():
+    by_mode = {
+        "T0": [mode_doc("a", False, 1000), mode_doc("b", False, 1000)],
+        "T1": [mode_doc("a", False, 1500)],  # b는 T1에서 건너뛰었다
+    }
+    md = render_mode_table(by_mode, ("시행사",))
+    assert "| 입력 토큰 합계 | 처리한 공고 |" in md
+    assert "| T0 | C | 2 |" in md and "| 2,000 | 2 |" in md
+    assert "| T1 | C | 1 |" in md and "| 1,500 | 1 |" in md
+
+
+def test_token_ratio_compares_only_notices_both_modes_processed():
+    by_mode = {
+        "T0": [mode_doc("a", False, 1000), mode_doc("b", False, 9000)],
+        "T1": [mode_doc("a", False, 1500)],  # 큰 공고 b가 T1에서 빠졌다
+    }
+    out = render_token_ratio(by_mode)
+    assert "T1 ÷ T0 = 1.50배" in out and "공고 1건" in out
