@@ -4,13 +4,14 @@ CI에는 공고문 PDF가 없어서(data/raw/는 git 밖) 쪽 텍스트는 응�
 거르는 규칙과 응답 모양을 재는 테스트지 정확도를 재는 테스트가 아니다.
 """
 
+import hashlib
 import json
 from pathlib import Path
 
 import pytest
 
 from cheongyak_extract import extract as ex_reason
-from cheongyak_extract.extract import FIELDS, RULES, extract
+from cheongyak_extract.extract import FIELDS, RULES, build_prompt, extract
 
 LLM_FIXTURES = Path(__file__).parent / "fixtures" / "llm"
 TUNE_NOTICES = (
@@ -38,6 +39,13 @@ def pages_from_evidence(body: dict) -> list[str]:
     for c in body.values():
         pages[c["page"] - 1] += c["evidence"].replace("\n", " ") + "\n"
     return pages
+
+
+def test_recorded_responses_were_received_with_the_current_prompt():
+    # 공고문 PDF가 없어 프롬프트 전체를 다시 만들 수 없다. 지시문 부분(머리말·필드 정의)의 해시를
+    # 녹화 때 적어 두고, 프롬프트를 고치면 이 테스트가 깨져 응답을 다시 녹화하게 한다.
+    recorded = (LLM_FIXTURES / "prompt.sha256").read_text(encoding="utf-8").strip()
+    assert hashlib.sha256(build_prompt([]).encode()).hexdigest() == recorded
 
 
 def test_there_is_one_recorded_response_per_tuning_notice():

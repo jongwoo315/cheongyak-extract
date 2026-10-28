@@ -277,3 +277,47 @@ def test_extract_rules_asks_once_and_returns_one_result_per_rule():
     assert tuple(out) == ex.RULES
     assert out["A"].fields["시행사"].value == "(주)가나건설"
     assert out["B"].fields["시행사"].value is None
+
+
+# --- 프롬프트가 값의 꼴과 시행사 정의를 정한다 (#147 세 번째 시도) ---
+
+
+def test_prompt_adds_a_missing_year_but_otherwise_keeps_dates_as_written():
+    # 날짜를 ISO로 바꿔 쓰게 하면 값이 쪽에 없어 C안이 근거 어긋난 칸을 못 살린다(수정 1 실측)
+    prompt = build_prompt(PAGES)
+    assert "끝 날짜에 연도가 없으면" in prompt and "시작 날짜의 연도를 붙여" in prompt
+    assert "두 자리" in prompt and "네 자리" in prompt
+    assert "YYYY-MM-DD" not in prompt
+    assert "사업자번호" in prompt and "법인번호" in prompt
+
+
+def test_prompt_defines_the_developer_by_the_notice_table_header_not_by_trust_company():
+    prompt = build_prompt(PAGES)
+    developer = prompt.split("- 시행사:")[1].split("\n- ")[0]
+    assert "시행수탁자" in developer and "사업주체1" in developer
+    assert "몇 번째" in developer  # 머리글 칸 순서와 상호 순서는 같다
+    assert "자금관리자" in developer and "납부계좌" in developer
+    assert "신탁 방식이면 신탁사" not in developer  # 두 번째 시도의 정의
+
+
+def test_prompt_does_not_name_a_notice_or_a_company():
+    import re
+
+    prompt = build_prompt(PAGES)
+    assert not re.search(r"2026\d{6}", prompt)
+    for name in ("하나자산신탁", "케이비부동산신탁", "옥포드림", "서광건영", "에이치엠서빈"):
+        assert name not in prompt
+
+
+def test_value_copy_rule_names_the_only_changes_it_allows():
+    assert "연도를 보충하고 회사를 쉼표로 잇는 것" in build_prompt(PAGES)
+
+
+def test_prompt_keeps_the_developer_to_one_company_and_the_builder_to_the_columns_after_it():
+    prompt = build_prompt(PAGES)
+    developer = prompt.split("- 시행사:")[1].split("\n- ")[0]
+    builder = prompt.split("- 시공사:")[1].split("\n- ")[0]
+    assert "여러 상호를 잇지 않는다" in developer and "시행위탁자의 상호는 쓰지 않는다" in developer
+    assert "이름 없는 칸" in builder and "나머지는 모두 시공사" in builder
+    assert "같은 회사면 둘 다" in builder
+    assert "월.일만 있으면" in prompt
