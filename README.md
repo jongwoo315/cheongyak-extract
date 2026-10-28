@@ -29,10 +29,15 @@ uv run python -m cheongyak_extract run --n 3
 요청은 순서대로 보내고 사이마다 2초 쉰다. 받은 원본은 `data/raw/`에, LLM 응답 캐시는 `data/llm/`에 두며
 둘 다 커밋하지 않는다. 같은 프롬프트는 캐시에서 읽어 API를 다시 부르지 않는다.
 
-받아 둔 공고만 다시 재려면(청약홈에 요청하지 않는다):
+공고를 미리 받아 두려면(청약홈에 요청한다. LLM은 부르지 않는다):
 
 ```bash
 uv run python -m cheongyak_extract fetch --start-page 2 --n 20      # 목록 2쪽부터 PDF 있는 공고 20건
+```
+
+받아 둔 공고만 다시 재려면(청약홈에 요청하지 않는다):
+
+```bash
 uv run python -m cheongyak_extract eval --pbno 2026000518 2026000530 --out reports/x.md
 uv run python -m cheongyak_extract eval --pbno 2026000518 --text T0 T1 --out reports/x.md
 ```
