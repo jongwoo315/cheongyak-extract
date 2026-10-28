@@ -134,3 +134,46 @@ def test_unfinished_response_message_carries_the_reason(tmp_path):
     client = SimpleNamespace(responses=SimpleNamespace(create=lambda **kw: reply))
     with pytest.raises(llm.BadResponse, match="failed.*rate_limit_exceeded"):
         llm.make_ask("m1", tmp_path, client)("p")
+
+
+class SequenceClient:
+    """호출마다 (출력, 입력 토큰)을 차례로 돌려주는 가짜 클라이언트."""
+
+    def __init__(self, replies):
+        self.replies = list(replies)
+        self.calls = 0
+        self.responses = SimpleNamespace(create=self._create)
+
+    def _create(self, **kwargs):
+        text, tokens = self.replies[self.calls]
+        self.calls += 1
+        return SimpleNamespace(
+            output_text=text,
+            status="completed",
+            usage=SimpleNamespace(input_tokens=tokens, output_tokens=7),
+        )
+
+
+LONG = "가" * 100_000  # 정상이면 입력 토큰이 수만 개다
+
+
+def test_response_that_read_almost_none_of_the_prompt_is_retried_and_never_cached(tmp_path):
+    # 2026000491: 25만 자 프롬프트인데 입력 토큰 590으로 completed가 왔고 8칸이 전부 null이었다
+    client = SequenceClient([("null만", 590), ('{"ok": 1}', 60_000)])
+    ask = llm.make_ask("m1", tmp_path, client)
+    assert ask(LONG) == '{"ok": 1}' and client.calls == 2
+    assert ask.last_usage == Usage(60_000, 7)
+    again = llm.make_ask("m1", tmp_path, SequenceClient([]))  # 캐시에는 정상 응답만 있다
+    assert again(LONG) == '{"ok": 1}'
+
+
+def test_response_that_keeps_reading_almost_none_of_the_prompt_ends_as_bad_response(tmp_path):
+    client = SequenceClient([("x", 590)] * llm.MAX_ATTEMPTS)
+    with pytest.raises(llm.BadResponse, match="입력 토큰"):
+        llm.make_ask("m1", tmp_path, client)(LONG)
+    assert client.calls == llm.MAX_ATTEMPTS and list(tmp_path.glob("*.json")) == []
+
+
+def test_short_prompt_with_few_tokens_is_normal(tmp_path):
+    client = SequenceClient([('{"ok": 1}', 3)])
+    assert llm.make_ask("m1", tmp_path, client)("p") == '{"ok": 1}' and client.calls == 1
