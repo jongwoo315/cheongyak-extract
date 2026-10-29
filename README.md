@@ -61,6 +61,16 @@ uv run python -m cheongyak_extract eval --pbno 2026000518 --text T0 T1 --out rep
 
 `eval --text`는 PDF 텍스트 방식을 고른다. 기본은 T0다.
 
+정규식 baseline으로 재려면(OpenAI를 부르지 않고 `OPENAI_API_KEY`도 필요 없다):
+
+```bash
+uv run python -m cheongyak_extract eval --extractor regex --pbno 2026000494 2026000448 --out reports/x.md
+uv run python -m cheongyak_extract.compare    # reports/regex-vs-llm.md를 다시 만든다(LLM 숫자는 커밋된 리포트에서 읽는다)
+```
+
+`--extractor`는 `llm`(기본)이나 `regex`다. 정규식은 라벨 뒤의 값을 줍는 단순한 패턴 8개다
+([src/cheongyak_extract/regex_extract.py](src/cheongyak_extract/regex_extract.py)). 표의 몇 번째 칸인지 세지 않고 공고별 예외도 없다.
+
 | 방식 | 쪽 텍스트 |
 | --- | --- |
 | T0 | `sort=True` 텍스트 |
@@ -74,6 +84,7 @@ uv run python -m cheongyak_extract eval --pbno 2026000518 --text T0 T1 --out rep
 fetch (목록 → 상세 HTML → 공고문 PDF)  →  data/raw/<pbno>/{detail.html, notice.pdf}
 pdf_text (쪽마다 텍스트, T0·T1)         →  list[str]
 extract (LLM 한 번 → 8필드 JSON → 근거 확인)  →  {field: Extraction(value, evidence, page)}
+regex_extract (라벨 뒤 값 줍기, --extractor regex)  →  같은 꼴. LLM 대신 쓴다
 truth (상세 HTML 표 → 정답 필드)        →  {field: str | None}
 normalize + report (필드별 지표 표)     →  stdout + reports/*.md
 ```
@@ -84,6 +95,11 @@ normalize + report (필드별 지표 표)     →  stdout + reports/*.md
 - 세 번째 시도의 측정: [reports/extract-tune-0.md](reports/extract-tune-0.md)(표를 붙인 T1 대 T0),
   [reports/extract-tune.md](reports/extract-tune.md)(프롬프트 수정 기록, 다듬는 공고 29건),
   [reports/extract-new.md](reports/extract-new.md)(고정 뒤 받은 공고 20건)
+- 정규식 baseline(#150): 다듬는 29건으로 규칙을 만들고 고정한 뒤 재는 20건을 한 번 쟀다.
+  재는 20건 160칸에서 정규식은 맞음 111(69.4%)·비움 34(21.2%)·다른 값으로 채움 15(9.4%), LLM(C안)은 맞음 154(96.2%)·비움 0·다른 값으로 채움 6(3.8%)이다.
+  표 위치를 세야 하는 당첨자 발표일(정규식 4칸 대 LLM 20칸)·계약일(9 대 20)·시공사(10 대 19)에서 갈린다.
+  [reports/regex-vs-llm.md](reports/regex-vs-llm.md)(비교 표), [reports/regex-tune.md](reports/regex-tune.md)(규칙 수정 기록),
+  [reports/regex-new.md](reports/regex-new.md)(재는 20건), [reports/regex-more.md](reports/regex-more.md)(남은 101건, 정규식만)
 - 수집(#151): `data/raw/`에 수집된 공고 150건, 열리지 않는 PDF 0건.
   [reports/raw.md](reports/raw.md)(`check-raw`), [reports/fetch.md](reports/fetch.md)(수집 기록). 150건에는 LLM 추출·`eval`을 아직 돌리지 않았다
 - 이후 티켓: 정규식 baseline #150, PDF에만 있는 필드 #152, 정답 수동 대조 #149
