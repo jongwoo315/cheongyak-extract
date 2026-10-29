@@ -78,3 +78,9 @@ def test_check_raw_report_says_none_when_every_pdf_opens(tmp_path):
     out = tmp_path / "raw.md"
     check_raw(raw, out)
     assert "열리지 않는 PDF 0건" in out.read_text(encoding="utf-8")
+
+
+def test_scan_does_not_count_an_html_page_saved_as_notice_pdf(tmp_path):
+    _notice(tmp_path, "A", pdf=b"<html><body>error</body></html>")
+    result = scan(tmp_path)
+    assert result.collected == [] and [p for p, _ in result.unreadable] == ["A"]

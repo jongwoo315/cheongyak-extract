@@ -441,3 +441,13 @@ def test_download_without_a_counter_still_retries(tmp_path):
     with httpx.Client(transport=transport) as client:
         out = download(client, "B", "B", "x", tmp_path, pause=lambda s: None)
     assert (out / "notice.pdf").exists() and requests.count("detail") == 2
+
+
+def test_download_rejects_an_html_error_page_served_with_a_pdf_file_name(tmp_path):
+    # pymupdf는 HTML도 1쪽짜리 문서로 연다. 이름이 .pdf여도 본문이 PDF가 아니면 notice.pdf로 못 간다
+    html = "<html><body>오류</body></html>".encode()
+    with httpx.Client(transport=_transport(pdf_bytes=html)) as client:
+        with pytest.raises(BadPdf, match="열리지 않는 PDF"):
+            download(client, "2026000532", "2026000532", "계양", tmp_path, pause=lambda s: None)
+    assert not (tmp_path / "2026000532" / "notice.pdf").exists()
+    assert not (tmp_path / "2026000532" / "notice.pdf.part").exists()

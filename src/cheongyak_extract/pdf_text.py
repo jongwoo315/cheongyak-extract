@@ -30,6 +30,8 @@ def pdf_problem(path: Path) -> str | None:
     """열리지 않는 이유. 쪽 수 1 이상이고 마지막 쪽 텍스트까지 읽히면 None이다."""
     try:
         with pymupdf.open(path) as doc:
+            if not doc.is_pdf:  # pymupdf는 HTML 같은 파일도 문서로 연다
+                return "PDF가 아님"
             if len(doc) < 1:
                 return "쪽 수가 0"
             doc[-1].get_text()
