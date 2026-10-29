@@ -119,7 +119,7 @@ def parse_pbnos(md: str) -> list[str]:
     """eval 리포트에서 처리한 공고와 건너뛴 공고를 모두 읽는다."""
     head = _need(re.search(r"^공고 \d+건: (.+)$", md, re.M), "공고 목록")[1]
     skipped = re.findall(r"^- (\d{10}): ", md, re.M)
-    return [*head.split(", "), *skipped]
+    return list(dict.fromkeys([*head.split(", "), *skipped]))  # 방식이 둘이면 같은 공고가 겹친다
 
 
 def regex_cells(

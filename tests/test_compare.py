@@ -9,6 +9,7 @@ from cheongyak_extract.compare import (
     cross,
     parse_llm_new,
     parse_llm_tune,
+    parse_pbnos,
     parse_regex_summary,
     parse_regex_tune_last,
     render,
@@ -101,6 +102,13 @@ def test_parse_fails_loudly_when_the_report_format_changed():
     for fn in (parse_llm_new, parse_llm_tune, parse_regex_summary, parse_regex_tune_last):
         with pytest.raises(ValueError):
             fn("표가 없다")
+
+
+def test_parse_pbnos_joins_processed_and_skipped_without_duplicates():
+    md = "공고 2건: 2026000001, 2026000002\n\n건너뛴 공고:\n\n- 2026000003: 텍스트 없음\n"
+    assert parse_pbnos(md) == ["2026000001", "2026000002", "2026000003"]
+    both = "## T0\n공고 1건: 2026000001\n- 2026000001: T1 텍스트 없음\n"
+    assert parse_pbnos(both) == ["2026000001"]
 
 
 def test_same_cells_refuses_when_llm_and_regex_counted_different_cells():
