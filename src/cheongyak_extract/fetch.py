@@ -10,6 +10,8 @@ from urllib.parse import unquote
 import httpx
 from bs4 import BeautifulSoup
 
+from cheongyak_extract.pdf_text import pdf_problem
+
 BASE = "https://www.applyhome.co.kr/ai/aia"
 LIST_URL = f"{BASE}/selectAPTLttotPblancListView.do?pageIndex=1"
 DETAIL_URL = f"{BASE}/selectAPTLttotPblancDetail.do"
@@ -25,6 +27,10 @@ ALWAYS_SKIP = {"2026000531"}  # 공고문 링크가 없는 공고(설계 §다�
 
 class Skipped(Exception):
     """이 공고는 PDF를 못 받아 건너뛴다. 메시지가 리포트에 적힐 이유다."""
+
+
+class BadPdf(Skipped):
+    """받은 PDF가 열리지 않는다. 수집 대상이 아닌 공고와 달리 오류로 센다(설계 §오류)."""
 
 
 def list_url(page: int) -> str:
@@ -54,6 +60,10 @@ def filename_from_disposition(header: str | None) -> str | None:
     return unquote(m.group(1)) if m else None
 
 
+def is_pdf(name: str | None, body: bytes) -> bool:
+    return bool(name and name.lower().endswith(".pdf")) or body.startswith(b"%PDF-")
+
+
 def download(
     client: httpx.Client,
     hmno: str,
@@ -78,10 +88,22 @@ def download(
         pdf = client.get(url)
         pdf.raise_for_status()
         name = filename_from_disposition(pdf.headers.get("content-disposition"))
-        if name and name.lower().endswith(".pdf"):
-            (out / "notice.pdf").write_bytes(pdf.content)
-            return out
+        if not is_pdf(name, pdf.content):
+            continue
+        # 끊긴 바이트가 notice.pdf로 남으면 다음 실행이 건너뛴다(#147 리뷰 defer 7)
+        part = out / "notice.pdf.part"
+        part.write_bytes(pdf.content)
+        if problem := pdf_problem(part):
+            part.unlink()
+            raise BadPdf(f"열리지 않는 PDF: {problem}")
+        part.replace(out / "notice.pdf")
+        return out
     raise Skipped("첨부가 PDF가 아님")
+
+
+def _has_readable_pdf(out: Path) -> bool:
+    pdf = out / "notice.pdf"
+    return pdf.exists() and pdf_problem(pdf) is None
 
 
 class FetchResult(NamedTuple):
@@ -99,7 +121,7 @@ def fetch_notices(
 ) -> FetchResult:
     """목록 start_page쪽부터 PDF가 있는 공고를 n건 받는다.
 
-    notice.pdf가 이미 있는 공고와 ALWAYS_SKIP은 요청 없이 건너뛴다. 403·429(목록 요청 포함)가
+    열리는 notice.pdf가 이미 있는 공고와 ALWAYS_SKIP은 요청 없이 건너뛴다. 403·429(목록 요청 포함)가
     MAX_BLOCKS_IN_A_ROW번 연속이면 멈춘다. 그 사이에 막힘이 아닌 결과(받음·링크 없음·500·
     타임아웃)가 한 번이라도 끼면 연속이 끊긴다. 멈춤 메시지의 코드는 마지막 막힘의 코드다.
     목록 요청이 막힘이 아닌 이유로 실패하면 바로 멈춘다.
@@ -138,11 +160,11 @@ def fetch_notices(
             if len(fetched) == n:
                 break
             seen.add(pbno)
-            if pbno in ALWAYS_SKIP or (raw_dir / pbno / "notice.pdf").exists():
+            if pbno in ALWAYS_SKIP or _has_readable_pdf(raw_dir / pbno):
                 continue
             try:
                 download(client, hmno, pbno, honm, raw_dir, pause)
-            except Skipped as e:
+            except Skipped as e:  # BadPdf도 여기서 건너뜀으로 센다
                 skipped.append((pbno, str(e)))
                 blocks = 0
                 continue

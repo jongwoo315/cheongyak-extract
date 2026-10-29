@@ -1,10 +1,13 @@
+from functools import cache
 from pathlib import Path
 from urllib.parse import quote
 
 import httpx
+import pymupdf
 import pytest
 
 from cheongyak_extract.fetch import (
+    BadPdf,
     Skipped,
     download,
     fetch_notices,
@@ -47,7 +50,21 @@ def test_filename_from_disposition_missing_returns_none():
     assert filename_from_disposition("attachment") is None
 
 
-def _transport(pdf_name: str = "공고문.pdf", pdf_bytes: bytes = b"%PDF-1.6 fake"):
+@cache  # pymupdf가 문서 ID를 매번 새로 넣으므로, 같은 글자는 같은 바이트로 돌려줘야 비교된다
+def make_pdf(text: str = "공고문") -> bytes:
+    """pymupdf로 연 뒤 마지막 쪽 텍스트까지 읽히는 1쪽짜리 PDF."""
+    doc = pymupdf.open()
+    doc.new_page().insert_text((72, 72), text, fontname="korea")
+    data = doc.tobytes()
+    doc.close()
+    return data
+
+
+TRUNCATED_PDF = make_pdf()[:60]  # `%PDF-1.7` 머리만 있고 뒤가 끊겼다
+
+
+def _transport(pdf_name: str = "공고문.pdf", pdf_bytes: bytes | None = None):
+    pdf_bytes = make_pdf() if pdf_bytes is None else pdf_bytes
     detail = (FIXTURES / "detail.html").read_bytes()
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -73,11 +90,11 @@ def test_download_writes_detail_and_pdf(tmp_path):
         out = download(client, "2026000532", "2026000532", "계양", tmp_path, pause=lambda s: None)
     assert out == tmp_path / "2026000532"
     assert (out / "detail.html").read_text(encoding="utf-8").count("<table") == 6
-    assert (out / "notice.pdf").read_bytes() == b"%PDF-1.6 fake"
+    assert (out / "notice.pdf").read_bytes() == make_pdf()
 
 
 def test_download_skips_non_pdf_attachment(tmp_path):
-    with httpx.Client(transport=_transport(pdf_name="공고문.hwp")) as client:
+    with httpx.Client(transport=_transport(pdf_name="공고문.hwp", pdf_bytes=b"HWP 5.0")) as client:
         with pytest.raises(Skipped, match="PDF"):
             download(client, "2026000532", "2026000532", "계양", tmp_path, pause=lambda s: None)
 
@@ -101,13 +118,12 @@ def test_download_tries_next_link_when_first_is_not_pdf(tmp_path):
             return httpx.Response(200, content=html)
         name = names[str(request.url).split("?")[1]]
         disposition = f'attachment; filename="{name}"'
-        return httpx.Response(
-            200, content=name.encode(), headers={"content-disposition": disposition}
-        )
+        content = make_pdf(name) if name.endswith(".pdf") else name.encode()
+        return httpx.Response(200, content=content, headers={"content-disposition": disposition})
 
     with httpx.Client(transport=httpx.MockTransport(handler)) as client:
         out = download(client, "1", "1", "x", tmp_path, pause=lambda s: None)
-    assert (out / "notice.pdf").read_bytes() == b"b.pdf"
+    assert (out / "notice.pdf").read_bytes() == make_pdf("b.pdf")
 
 
 # --- fetch_notices: 목록 N쪽부터 PDF 있는 공고를 n건 받는다 ---
@@ -143,7 +159,7 @@ def _site(pages, *, no_pdf=(), status=None):
         seen.append(("pdf", pbno))
         return httpx.Response(
             200,
-            content=f"%PDF {pbno}".encode(),
+            content=make_pdf(pbno),
             headers={"content-disposition": 'attachment; filename="a.pdf"'},
         )
 
@@ -163,7 +179,7 @@ def test_fetch_notices_starts_at_the_given_page_and_stops_at_n(tmp_path):
     assert result.fetched == ["B", "C"]
     assert result.stopped is None
     assert ("list", 1) not in seen and ("detail", "D") not in seen
-    assert (tmp_path / "B" / "notice.pdf").read_bytes() == b"%PDF B"
+    assert (tmp_path / "B" / "notice.pdf").read_bytes() == make_pdf("B")
 
 
 def test_fetch_notices_goes_on_to_the_next_page_when_one_is_not_enough(tmp_path):
@@ -174,10 +190,10 @@ def test_fetch_notices_goes_on_to_the_next_page_when_one_is_not_enough(tmp_path)
 
 def test_fetch_notices_skips_notices_that_already_have_a_pdf_and_2026000531(tmp_path):
     (tmp_path / "B").mkdir()
-    (tmp_path / "B" / "notice.pdf").write_bytes(b"old")
+    (tmp_path / "B" / "notice.pdf").write_bytes(make_pdf("old"))
     result, seen, _ = _fetch(tmp_path, {2: ["B", "2026000531", "C", "D"]})
     assert result.fetched == ["C", "D"]
-    assert (tmp_path / "B" / "notice.pdf").read_bytes() == b"old"
+    assert (tmp_path / "B" / "notice.pdf").read_bytes() == make_pdf("old")
     assert not any(s[1] in ("B", "2026000531") for s in seen if s[0] != "list")
 
 
@@ -289,3 +305,66 @@ def test_fetch_notices_a_timeout_between_blocks_resets_the_block_count(tmp_path)
     result, _, _ = _fetch(tmp_path, pages, n=5, status=status)
     assert result.stopped == "목록 끝"  # 403이 둘, 시간 초과, 403이 둘: 3번 연속이 아니다
     assert [p for p, _ in result.skipped] == ["B", "C", "D", "E", "F"]
+
+
+# --- 잘린 PDF를 남기지 않는다 ---
+
+
+def test_download_does_not_leave_a_truncated_pdf_or_a_part_file(tmp_path):
+    with httpx.Client(transport=_transport(pdf_bytes=TRUNCATED_PDF)) as client:
+        with pytest.raises(BadPdf, match="열리지 않는 PDF"):
+            download(client, "2026000532", "2026000532", "계양", tmp_path, pause=lambda s: None)
+    out = tmp_path / "2026000532"
+    assert not (out / "notice.pdf").exists()
+    assert not (out / "notice.pdf.part").exists()
+
+
+def test_a_notice_whose_pdf_does_not_open_counts_as_skipped_not_fetched(tmp_path):
+    pdf_requests = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if "ListView" in str(request.url):
+            return httpx.Response(200, text=_list_html(["B", "C"]))
+        if request.method == "POST":
+            return httpx.Response(200, text='<a href="https://x.kr/getAtchmnfl.do?n=1">pdf</a>')
+        pdf_requests.append(request)
+        content = TRUNCATED_PDF if len(pdf_requests) == 1 else make_pdf()
+        return httpx.Response(
+            200, content=content, headers={"content-disposition": 'attachment; filename="a.pdf"'}
+        )
+
+    with httpx.Client(transport=httpx.MockTransport(handler)) as client:
+        result = fetch_notices(client, tmp_path, 1, 1, pause=lambda s: None)
+    assert result.fetched == ["C"]
+    assert [p for p, _ in result.skipped] == ["B"]
+    assert "열리지 않는 PDF" in result.skipped[0][1]
+    assert not (tmp_path / "B" / "notice.pdf").exists()
+
+
+def test_fetch_notices_requests_again_when_the_pdf_on_disk_does_not_open(tmp_path):
+    (tmp_path / "B").mkdir()
+    (tmp_path / "B" / "notice.pdf").write_bytes(TRUNCATED_PDF)
+    result, seen, _ = _fetch(tmp_path, {2: ["B"]}, n=1)
+    assert result.fetched == ["B"]
+    assert ("detail", "B") in seen
+    assert (tmp_path / "B" / "notice.pdf").read_bytes() == make_pdf("B")
+
+
+# --- PDF 판정: 파일 이름이 .pdf이거나 본문이 %PDF-로 시작한다 ---
+
+
+def test_download_accepts_a_body_that_starts_with_pdf_magic_without_content_disposition(tmp_path):
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.method == "POST":
+            return httpx.Response(200, content=(FIXTURES / "detail.html").read_bytes())
+        return httpx.Response(200, content=make_pdf())  # content-disposition 없음
+
+    with httpx.Client(transport=httpx.MockTransport(handler)) as client:
+        out = download(client, "2026000532", "2026000532", "계양", tmp_path, pause=lambda s: None)
+    assert (out / "notice.pdf").read_bytes() == make_pdf()
+
+
+def test_download_still_skips_when_neither_the_name_nor_the_body_says_pdf(tmp_path):
+    with httpx.Client(transport=_transport(pdf_name="a.hwp", pdf_bytes=b"HWP 5.0")) as client:
+        with pytest.raises(Skipped, match="PDF가 아님"):
+            download(client, "2026000532", "2026000532", "계양", tmp_path, pause=lambda s: None)
