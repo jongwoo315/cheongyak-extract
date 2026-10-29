@@ -33,7 +33,24 @@ uv run python -m cheongyak_extract run --n 3
 
 ```bash
 uv run python -m cheongyak_extract fetch --start-page 2 --n 20      # 목록 2쪽부터 PDF 있는 공고 20건
+uv run python -m cheongyak_extract check-raw                         # data/raw/만 읽어 reports/raw.md를 쓴다
 ```
+
+`fetch`의 `--n`은 이번에 새로 받을 공고 수다. 열리는 `notice.pdf`가 이미 있는 공고는 요청 없이 건너뛰므로
+`data/raw/` 전체를 150건으로 채우려면 `150 - (지금 수집된 공고 수)`를 준다. PDF는 `notice.pdf.part`에 받아
+pymupdf로 열리는 것을 확인한 뒤 `notice.pdf`로 이름을 바꾼다. 5xx·타임아웃·연결 끊김은 요청마다
+두 번까지(5초, 15초 쉰 뒤) 다시 보내고, 403·429는 다시 보내지 않고 3번 연속이면 멈춘다. 다시 보낸 횟수는
+`fetch` 출력에 찍힌다.
+
+`check-raw`는 청약홈에 요청하지 않는다. `data/raw/`를 읽어 공고 디렉터리 수, 수집된 공고 수,
+열리지 않는 PDF, PDF가 없는 공고를 [reports/raw.md](reports/raw.md)에 쓴다.
+
+**「수집됐다」와 「오류」의 뜻**은 jw 기준(「150건의 공고가 오류없이 수집된다」)이 정하지 않아 Claude가
+정했다. 설계: [docs/plans/151-1029-design-fetch-150.md](docs/plans/151-1029-design-fetch-150.md) §「수집됐다」와 「오류」의 뜻.
+
+- 수집된 공고: `detail.html`이 있고 `notice.pdf`가 pymupdf로 열린다(쪽 수 1 이상, 마지막 쪽 텍스트가 읽힌다)
+- 오류: 요청이 다시 시도한 뒤에도 실패했다 / 열리지 않는 `notice.pdf`가 있다 / `fetch`가 n건을 못 채우고 멈췄다
+- 오류가 아닌 것: 상세에 공고문 링크가 없는 공고, 첨부가 PDF가 아닌 공고. 수집 대상이 아니라 건너뛰고 이유를 센다
 
 받아 둔 공고만 다시 재려면(청약홈에 요청하지 않는다):
 
@@ -67,7 +84,9 @@ normalize + report (필드별 지표 표)     →  stdout + reports/*.md
 - 세 번째 시도의 측정: [reports/extract-tune-0.md](reports/extract-tune-0.md)(표를 붙인 T1 대 T0),
   [reports/extract-tune.md](reports/extract-tune.md)(프롬프트 수정 기록, 다듬는 공고 29건),
   [reports/extract-new.md](reports/extract-new.md)(고정 뒤 받은 공고 20건)
-- 이후 티켓: 정규식 baseline #150, PDF에만 있는 필드 #152, 정답 수동 대조 #149, 150건 확대 #151
+- 수집(#151): `data/raw/`에 수집된 공고 150건, 열리지 않는 PDF 0건.
+  [reports/raw.md](reports/raw.md)(`check-raw`), [reports/fetch.md](reports/fetch.md)(수집 기록). 150건에는 LLM 추출·`eval`을 아직 돌리지 않았다
+- 이후 티켓: 정규식 baseline #150, PDF에만 있는 필드 #152, 정답 수동 대조 #149
 
 ## 테스트
 
