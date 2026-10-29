@@ -215,9 +215,14 @@ def _count_pct(num: int, den: int) -> str:
     return f"{num} ({_pct(_rate(num, den))})"
 
 
+def render_counts(docs: list[Doc], fields: tuple[str, ...]) -> str:
+    c = _Counts(docs, fields)
+    return f"정답 있는 칸 {c.n} · 맞음 {c.right} · 비움 {c.blank} · 틀리게 채움 {c.wrong}\n"
+
+
 def render_summary(docs: list[Doc], fields: tuple[str, ...]) -> str:
     c = _Counts(docs, fields)
-    md = f"정답 있는 칸 {c.n} · 맞음 {c.right} · 비움 {c.blank} · 틀리게 채움 {c.wrong}\n\n"
+    md = render_counts(docs, fields) + "\n"
     if c.gave:
         md += (
             f"LLM이 값을 준 {c.gave}칸 중 근거를 확인 못해 비운 칸 {c.rule_blanked}"

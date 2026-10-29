@@ -11,6 +11,7 @@ from cheongyak_extract.raw_check import check_raw
 
 RAW_DIR = Path("data/raw")
 LLM_CACHE = Path("data/llm")
+EXTRACTORS = ("llm", "regex")
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -35,6 +36,12 @@ def main(argv: list[str] | None = None) -> int:
         choices=TEXT_MODES,
         default=["T0"],
         help="PDF 텍스트 방식. T0=sort=True 텍스트, T1=T0 + 쪽의 표 markdown. 둘이면 나란히 쓴다",
+    )
+    e.add_argument(
+        "--extractor",
+        choices=EXTRACTORS,
+        default="llm",
+        help="llm=OpenAI로 추출(OPENAI_API_KEY 필요). regex=정규식 baseline, LLM을 부르지 않는다",
     )
     f = sub.add_parser("fetch", help="목록 N쪽부터 PDF 있는 공고를 n건 받는다(LLM 안 부름)")
     f.add_argument("--start-page", type=int, default=1, help="목록 시작 쪽")
@@ -75,12 +82,14 @@ def main(argv: list[str] | None = None) -> int:
             print(f"멈춤: {got.stopped}")
         return 0 if got.stopped is None else 1
 
-    ask = make_ask(model_from_env(), LLM_CACHE)
     if args.cmd == "eval":
+        # regex면 OpenAI 클라이언트를 만들지 않는다. 키가 없어도 돈다
+        ask = make_ask(model_from_env(), LLM_CACHE) if args.extractor == "llm" else None
         modes = tuple(dict.fromkeys(args.text))
         result = evaluate(args.pbno, RAW_DIR, ask, args.out, sort=not args.no_sort, modes=modes)
         return 0 if result.processed == len(args.pbno) * len(modes) else 1
 
+    ask = make_ask(model_from_env(), LLM_CACHE)
     with make_client() as client:
         result = run(args.n, client, RAW_DIR, args.out, ask)
     # 정답 있음이 0이면 정확도·빈 칸이 `—`로 나와 추출 결과를 읽을 수 없다. 통과로 치지 않는다.

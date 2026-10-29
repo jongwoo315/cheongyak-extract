@@ -11,10 +11,12 @@ from cheongyak_extract.extract import DEFAULT_RULE, FIELDS, Ask, extract_rules
 from cheongyak_extract.fetch import LIST_URL, PAUSE_SECONDS, Skipped, download, parse_list
 from cheongyak_extract.llm import BadResponse, ContextExceeded
 from cheongyak_extract.pdf_text import pages
+from cheongyak_extract.regex_extract import regex_extract
 from cheongyak_extract.report import (
     Doc,
     FieldMetrics,
     metrics,
+    render_counts,
     render_field_rates,
     render_markdown,
     render_mode_table,
@@ -38,8 +40,11 @@ class SkipDoc(Exception):
     """이 공고만 건너뛴다. 메시지가 리포트에 적힌다."""
 
 
-def _analyze(pbno: str, out: Path, ask: Ask, sort: bool = True, mode: str = "T0") -> Doc:
-    """out(data/raw/<pbno>/)의 detail.html·notice.pdf로 추출하고 Doc을 만든다. mode는 T0·T1."""
+def _analyze(pbno: str, out: Path, ask: Ask | None, sort: bool = True, mode: str = "T0") -> Doc:
+    """out(data/raw/<pbno>/)의 detail.html·notice.pdf로 추출하고 Doc을 만든다. mode는 T0·T1.
+
+    ask가 None이면 LLM을 부르지 않고 정규식(regex_extract)으로 뽑는다.
+    """
     for name in ("detail.html", "notice.pdf"):
         if not (out / name).exists():
             raise SkipDoc(f"{name} 없음")
@@ -50,6 +55,8 @@ def _analyze(pbno: str, out: Path, ask: Ask, sort: bool = True, mode: str = "T0"
     if not any(t.strip() for t in text):
         raise SkipDoc("텍스트 없음(스캔 PDF로 보임)")
     truth = parse_truth((out / "detail.html").read_text(encoding="utf-8"))
+    if ask is None:
+        return Doc(pbno, truth, regex_extract(text), text)
     try:
         by_rule = extract_rules(text, ask)
     except ContextExceeded as e:
@@ -61,8 +68,11 @@ def _analyze(pbno: str, out: Path, ask: Ask, sort: bool = True, mode: str = "T0"
     return Doc(pbno, truth, got.fields, text, got.blanked, usage, by_rule)
 
 
-def _body(docs: list[Doc], ask: Ask) -> str:
+def _body(docs: list[Doc], ask: Ask | None) -> str:
     md = render_markdown(metrics(docs, FIELDS)) + "\n"
+    if ask is None:  # 정규식: A·B·C안, LLM이 값을 준 칸, 토큰이 없다
+        md += render_counts(docs, FIELDS)
+        return md + "\n틀리게 채운 칸:\n\n" + render_wrong(docs, FIELDS)
     if DEFAULT_RULE == "C":
         md += (
             "표의 「지어낸 값」·「근거 위치 맞음」은 근거 문장이 PDF에 없어도 값이 그 쪽에 있어 "
@@ -83,16 +93,19 @@ def _report(
     by_mode: dict[str, list[Doc]],
     skipped: list[tuple[str, str]],
     report_path: Path,
-    ask: Ask,
+    ask: Ask | None,
 ) -> Result:
     """by_mode: 텍스트 방식 -> Doc들. 방식이 둘 이상이면 방식마다 절을 나눈다."""
     docs = [d for ds in by_mode.values() for d in ds]
     pbnos = list(dict.fromkeys(d.pbno for d in docs))
     md = f"# {title}\n\n공고 {len(pbnos)}건: {', '.join(pbnos)}\n\n"
-    if model := getattr(ask, "model", None):
-        md += f"모델: {model}\n\n"
-    md += "텍스트 방식별 결과:\n\n" + render_mode_table(by_mode, FIELDS)
-    md += render_token_ratio(by_mode) + "\n"
+    if ask is None:
+        md += "추출: 정규식(regex_extract). LLM을 부르지 않았다.\n\n"
+    else:
+        if model := getattr(ask, "model", None):
+            md += f"모델: {model}\n\n"
+        md += "텍스트 방식별 결과:\n\n" + render_mode_table(by_mode, FIELDS)
+        md += render_token_ratio(by_mode) + "\n"
     for mode, mode_docs in by_mode.items():
         if len(by_mode) > 1:
             md += f"## {mode}\n\n"
@@ -141,7 +154,7 @@ def run(
 def evaluate(
     pbnos: list[str],
     raw_dir: Path,
-    ask: Ask,
+    ask: Ask | None,
     report_path: Path,
     sort: bool = True,
     modes: tuple[str, ...] = ("T0",),
@@ -149,6 +162,7 @@ def evaluate(
     """이미 받아 둔 data/raw/<pbno>/만 읽는다. 청약홈에 요청하지 않는다.
 
     modes의 텍스트 방식마다 같은 공고를 따로 추출해 한 리포트에 나란히 쓴다.
+    ask가 None이면 LLM 대신 정규식으로 뽑는다(OpenAI를 부르지 않는다).
     """
     by_mode: dict[str, list[Doc]] = {m: [] for m in modes}
     skipped: list[tuple[str, str]] = []
