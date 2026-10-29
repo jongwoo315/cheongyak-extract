@@ -56,16 +56,18 @@ def make_transport(pdf_names: list[str], pdf: bytes | None = None) -> httpx.Mock
     detail_html = (FIXTURES / "detail.html").read_bytes()
     pdf = pdf if pdf is not None else make_pdf_bytes()
     names = iter(pdf_names)
+    not_pdf = b"HWP 5.0"  # .pdf가 아닌 첨부는 본문도 PDF가 아니다(본문이 %PDF-면 PDF로 판정한다)
 
     def handler(request: httpx.Request) -> httpx.Response:
         if request.method == "POST":
             return httpx.Response(200, content=detail_html)
         if str(request.url) == LIST_URL:
             return httpx.Response(200, content=list_html)
+        name = next(names)
         return httpx.Response(
             200,
-            content=pdf,
-            headers={"content-disposition": f'attachment; filename="{quote(next(names))}"'},
+            content=pdf if name.endswith(".pdf") else not_pdf,
+            headers={"content-disposition": f'attachment; filename="{quote(name)}"'},
         )
 
     return httpx.MockTransport(handler)
@@ -107,7 +109,7 @@ def test_run_skips_announcement_when_download_fails(tmp_path):
     list_html = (FIXTURES / "list.html").read_bytes()
     detail_html = (FIXTURES / "detail.html").read_bytes()
     pdf = make_pdf_bytes()
-    posts = iter([500, 200, 200])
+    posts = iter([404, 200, 200])  # 500은 download()가 다시 보내므로 쓰지 않는다
 
     def handler(request: httpx.Request) -> httpx.Response:
         if request.method == "POST":
