@@ -67,7 +67,14 @@ def parse_llm_new(md: str) -> LlmNew:
         1
     ]
     wrong = {(m[1], m[2]) for m in re.finditer(r"^\| (\d{10}) \| ([^|]+) \|", wrong_part, re.M)}
-    return LlmNew(_counts(*row.groups()), by_field, wrong)
+    counts = _counts(*row.groups())
+    # 표에 없는 칸을 맞음으로 읽으므로 비움이 있거나 틀린 칸 수가 어긋나면 읽을 수 없다
+    if counts.blank or len(wrong) != counts.wrong:
+        raise ValueError(
+            f"틀리게 채운 칸 표({len(wrong)}칸)가 "
+            f"C안 합계(비움 {counts.blank}, 틀림 {counts.wrong})와 안 맞는다"
+        )
+    return LlmNew(counts, by_field, wrong)
 
 
 def parse_llm_tune(md: str) -> Counts:
@@ -175,7 +182,7 @@ _STATE = {"right": "맞음", "blank": "비움", "wrong": "다른 값으로 채�
 
 
 def _rate(c: Counts) -> float:
-    return c.right / c.total
+    return c.right / c.total if c.total else 0.0
 
 
 def _gap(label_a: str, a: Counts, label_b: str, b: Counts) -> str:
@@ -197,16 +204,20 @@ def _cell_md(v: str | None) -> str:
     return (v or "—").replace("|", "\\|").replace("\n", " ")
 
 
+def _share(right: int, n: int) -> str:
+    return f"{right} ({right / n:.0%})" if n else f"{right} (—)"
+
+
 def _field_table(
     cells: list[Cell], fields: tuple[str, ...], llm: dict[str, tuple[int, int]] | None = None
 ) -> str:
     head = "| 필드 | 정답 있는 칸 | 정규식 맞음 |" + (" LLM 맞음 |" if llm else "")
     md = head + "\n" + "| --- " * (head.count("|") - 1) + "|\n"
     for f, (n, right) in _by_field(cells, fields).items():
-        row = f"| {f} | {n} | {right} ({right / n:.0%}) |"
+        row = f"| {f} | {n} | {_share(right, n)} |"
         if llm:
             ln, lright = llm[f]
-            row += f" {lright} ({lright / ln:.0%}) |"
+            row += f" {_share(lright, ln)} |"
         md += row + "\n"
     return md
 
@@ -283,6 +294,10 @@ def main() -> int:
     new, _ = regex_cells(parse_pbnos(_read("extract-new.md")))
     tune, _ = regex_cells(parse_pbnos(_read("extract-tune-0.md")))
     more, more_skipped = regex_cells(parse_pbnos(_read("regex-more.md")))
+    if llm_new.counts.total != count(new).total:
+        raise SystemExit(
+            f"LLM 칸 {llm_new.counts.total}개와 정규식 칸 {count(new).total}개가 다르다"
+        )
     _same("재는 20건", new, parse_regex_summary(_read("regex-new.md")))
     _same("다듬는 29건", tune, parse_regex_tune_last(_read("regex-tune.md")))
     _same("남은 건", more, parse_regex_summary(_read("regex-more.md")))

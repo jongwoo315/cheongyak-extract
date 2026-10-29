@@ -19,7 +19,7 @@ LLM_NEW_MD = """\
 | 안 | 정답 있는 칸 | 맞음 | 비움 | 틀리게 채움 | LLM이 값을 준 칸 | 그 조건으로 비운 칸 |
 | --- | --- | --- | --- | --- | --- | --- |
 | A | 160 | 150 (94%) | 5 (3%) | 5 (3%) | 160 | 5 (3%) |
-| C | 160 | 154 (96%) | 0 (0%) | 6 (4%) | 160 | 0 (0%) |
+| C | 160 | 158 (99%) | 0 (0%) | 2 (1%) | 160 | 0 (0%) |
 
 필드별 맞은 칸:
 
@@ -60,10 +60,23 @@ LLM_TUNE_MD = """\
 def test_parse_llm_new_reads_the_c_row_field_rates_and_wrong_cells():
     got = parse_llm_new(LLM_NEW_MD)
     assert got == LlmNew(
-        counts=Counts(160, 154, 0, 6),
+        counts=Counts(160, 158, 0, 2),
         right_by_field={"공급위치": (20, 18), "당첨자 발표일": (20, 20)},
         wrong_cells={("2026000443", "공급위치"), ("2026000454", "입주예정월")},
     )
+
+
+def test_parse_llm_new_refuses_a_report_where_llm_blanks_would_read_as_right():
+    with_blank = LLM_NEW_MD.replace(
+        "| C | 160 | 158 (99%) | 0 (0%) | 2 (1%) |", "| C | 160 | 157 (98%) | 1 (1%) | 2 (1%) |"
+    )
+    with pytest.raises(ValueError, match="안 맞는다"):
+        parse_llm_new(with_blank)
+    short_table = LLM_NEW_MD.replace(
+        "| C | 160 | 158 (99%) | 0 (0%) | 2 (1%) |", "| C | 160 | 157 (98%) | 0 (0%) | 3 (2%) |"
+    )
+    with pytest.raises(ValueError):
+        parse_llm_new(short_table)
 
 
 def test_parse_llm_tune_takes_the_last_c_row_of_the_per_edit_table_only():
