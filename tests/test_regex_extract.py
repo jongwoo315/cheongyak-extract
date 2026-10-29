@@ -61,6 +61,13 @@ def test_supply_scale_without_general_sale_takes_the_last_household_count():
     assert regex_extract([page])["공급규모"].value == "39세대"
 
 
+def test_supply_scale_label_with_detail_suffix():
+    page = (
+        "■ 공급규모 및 내역  : 지하 3층, 지상 1층~29층 아파트 9개동 총 1,128세대 및 부대복리시설\n"
+    )
+    assert regex_extract([page])["공급규모"].value == "1,128세대"
+
+
 def test_supply_scale_total_only():
     page = "■ 공급규모  : 아파트 지하 2층, 지상 29층 10개동 총 992세대\n"
     assert regex_extract([page])["공급규모"].value == "992세대"
@@ -116,6 +123,26 @@ def test_company_row_supervision_table_is_not_taken_as_business_owner():
     got = regex_extract([page])
     assert got["시행사"] == EMPTY
     assert got["시공사"] == EMPTY
+
+
+def test_company_with_pdf_artifact_for_the_corporation_mark_is_restored():
+    # ㈜가 PDF 텍스트에서 `주(   )`로 풀려 나온다. 안의 공백이 칸 구분으로 읽히면 안 된다
+    page = "  구분   사업주체  시공업체\n  상호명   케이비부동산신탁주(   )    ㈜ 포스코이앤씨\n"
+    got = regex_extract([page])
+    assert got["시행사"].value == "케이비부동산신탁(주)"
+    assert got["시공사"].value == "㈜ 포스코이앤씨"
+
+
+def test_business_owner_label_line_is_the_fallback_when_there_is_no_company_row():
+    page = "  사업주체              서울주택도시개발공사\n"
+    got = regex_extract([page])
+    assert got["시행사"].value == "서울주택도시개발공사"
+    assert got["시공사"] == EMPTY
+
+
+def test_company_row_wins_over_an_earlier_business_owner_label_line():
+    page = "  사업주체     ㈜앞줄\n  구분   사업주체  시공사\n  상호   ㈜표회사    ㈜시공\n"
+    assert regex_extract([page])["시행사"].value == "㈜표회사"
 
 
 def test_single_company_cell_gives_only_the_business_owner():

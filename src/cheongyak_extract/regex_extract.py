@@ -13,7 +13,7 @@ _DATE = r"\d{4}\s*[.-]\s*\d{1,2}\s*[.-]\s*\d{1,2}\.?"
 _COUNT = r"(?<![\d,])(\d{1,3}(?:,\d{3})+|\d+)\s*세대"
 
 _LOCATION = re.compile(r"공급위치\s*:\s*(?P<v>\S.*)")
-_SCALE = re.compile(r"공급규모\s*:\s*(?P<v>\S.*)")
+_SCALE = re.compile(r"공급규모(?:\s*및\s*내역)?\s*:\s*(?P<v>\S.*)")
 _NOTICE_DATE = re.compile(rf"모집\s*공고일\s*(?:은|인|는|:)?\s*(?P<v>{_DATE})")
 _WINNER_DATE = re.compile(rf"당첨자\s*발표일?\s*(?:은|인|는|:)?\s*(?P<v>{_DATE})")
 _CONTRACT = re.compile(
@@ -27,6 +27,7 @@ _MOVE_IN = re.compile(
 )
 _OWNER_HEADER = re.compile(r"구\s*분.*(?:사업주체|시행)")
 _COMPANY_ROW = re.compile(r"^\s*상\s*호(?:\s*명)?\s{2,}(?P<v>\S.*)$")
+_OWNER_LABEL = re.compile(r"^\s*사업주체\s{2,}(?P<v>\S.*)$")
 _HEADER_LOOKBACK = 3
 
 Finder = Callable[[list[str], int], str | None]
@@ -77,7 +78,8 @@ def _company_cells(lines: list[str], i: int) -> list[str]:
     above = [ln for ln in lines[max(0, i - _HEADER_LOOKBACK) : i] if ln.strip()]
     if not any(_OWNER_HEADER.search(ln) for ln in above):
         return []
-    return re.split(r"\s{2,}", m.group("v").strip())
+    row = re.sub(r"주\(\s*\)", "(주)", m.group("v"))  # ㈜가 `주(   )`로 풀려 나오는 PDF 텍스트
+    return re.split(r"\s{2,}", row.strip())
 
 
 def _owner(lines: list[str], i: int) -> str | None:
@@ -89,18 +91,27 @@ def _builders(lines: list[str], i: int) -> str | None:
     return ", ".join(_company_cells(lines, i)[1:]) or None
 
 
-_FINDERS: dict[str, Finder] = {
-    "공급위치": _labelled(_LOCATION),
-    "공급규모": _scale,
-    "모집공고일": _labelled(_NOTICE_DATE),
-    "당첨자 발표일": _labelled(_WINNER_DATE),
-    "계약일": _contract,
-    "시행사": _owner,
-    "시공사": _builders,
-    "입주예정월": _labelled(_MOVE_IN),
+def _owner_label(lines: list[str], i: int) -> str | None:
+    m = _OWNER_LABEL.match(lines[i])
+    return re.split(r"\s{2,}", m.group("v").strip())[0] if m else None
+
+
+# 앞 파인더가 못 찾을 때만 다음 파인더를 쓴다
+_FINDERS: dict[str, tuple[Finder, ...]] = {
+    "공급위치": (_labelled(_LOCATION),),
+    "공급규모": (_scale,),
+    "모집공고일": (_labelled(_NOTICE_DATE),),
+    "당첨자 발표일": (_labelled(_WINNER_DATE),),
+    "계약일": (_contract,),
+    "시행사": (_owner, _owner_label),
+    "시공사": (_builders,),
+    "입주예정월": (_labelled(_MOVE_IN),),
 }
 
 
 def regex_extract(pages: list[str]) -> dict[str, Extraction]:
     """pages(쪽마다 텍스트)에서 FIELDS 8개를 뽑는다. 못 찾은 필드는 EMPTY."""
-    return {f: _find(pages, _FINDERS[f]) for f in FIELDS}
+    return {
+        f: next((x for fn in _FINDERS[f] if (x := _find(pages, fn)) != EMPTY), EMPTY)
+        for f in FIELDS
+    }
