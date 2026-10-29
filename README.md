@@ -68,8 +68,8 @@ uv run python -m cheongyak_extract eval --extractor regex --pbno 2026000494 2026
 uv run python -m cheongyak_extract.compare    # reports/regex-vs-llm.md를 다시 만든다(LLM 숫자는 커밋된 리포트에서 읽는다)
 ```
 
-`--extractor`는 `llm`(기본)이나 `regex`다. 정규식은 라벨 뒤의 값을 줍는 단순한 패턴 8개다
-([src/cheongyak_extract/regex_extract.py](src/cheongyak_extract/regex_extract.py)). 표의 몇 번째 칸인지 세지 않고 공고별 예외도 없다.
+`--extractor`는 `llm`(기본)이나 `regex`다. 정규식은 필드 8개마다 라벨 뒤의 값을 줍는 단순한 패턴이다
+([src/cheongyak_extract/regex_extract.py](src/cheongyak_extract/regex_extract.py)). 공고별 예외는 없다. 시행사·시공사만 상호 줄을 칸으로 나눠 읽는다.
 
 | 방식 | 쪽 텍스트 |
 | --- | --- |
@@ -99,10 +99,10 @@ normalize + report (필드별 지표 표)     →  stdout + reports/*.md
   재는 20건 160칸에서 정규식은 맞음 111(69.4%)·비움 34(21.2%)·다른 값으로 채움 15(9.4%), LLM(C안)은 맞음 154(96.2%)·비움 0·다른 값으로 채움 6(3.8%)이다.
   표 위치를 세야 하는 당첨자 발표일(정규식 4칸 대 LLM 20칸)·계약일(9 대 20)·시공사(10 대 19)에서 갈린다.
   [reports/regex-vs-llm.md](reports/regex-vs-llm.md)(비교 표), [reports/regex-tune.md](reports/regex-tune.md)(규칙 수정 기록),
-  [reports/regex-new.md](reports/regex-new.md)(재는 20건), [reports/regex-more.md](reports/regex-more.md)(남은 101건, 정규식만)
+  [reports/regex-new.md](reports/regex-new.md)(재는 20건), [reports/regex-more.md](reports/regex-more.md)(남은 101건 중 100건, 정규식만. 1건은 스캔 PDF라 건너뜀)
 - 수집(#151): `data/raw/`에 수집된 공고 150건, 열리지 않는 PDF 0건.
   [reports/raw.md](reports/raw.md)(`check-raw`), [reports/fetch.md](reports/fetch.md)(수집 기록). 150건에는 LLM 추출·`eval`을 아직 돌리지 않았다
-- 이후 티켓: 정규식 baseline #150, PDF에만 있는 필드 #152, 정답 수동 대조 #149
+- 이후 티켓: PDF에만 있는 필드 #152, 정답 수동 대조 #149
 
 ## 테스트
 
