@@ -33,7 +33,7 @@ def test_every_value_is_on_its_page(pbno):
     pdf = RAW / pbno / "notice.pdf"
     if not pdf.exists():
         pytest.skip("data/raw 없음")
-    text = pages(pdf)
+    text = pages(pdf, sort=False)  # fixture는 기본 순서 텍스트에서 복사한 것이다
     for field, cell in FORMS[pbno].items():
         if cell["value"] is None:
             continue
