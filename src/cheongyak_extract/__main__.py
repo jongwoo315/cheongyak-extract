@@ -7,6 +7,7 @@ from cheongyak_extract.llm import make_ask, model_from_env
 from cheongyak_extract.measure import measure_normalize
 from cheongyak_extract.pdf_text import TEXT_MODES
 from cheongyak_extract.pipeline import evaluate, run
+from cheongyak_extract.raw_check import check_raw
 
 RAW_DIR = Path("data/raw")
 LLM_CACHE = Path("data/llm")
@@ -38,6 +39,10 @@ def main(argv: list[str] | None = None) -> int:
     f = sub.add_parser("fetch", help="목록 N쪽부터 PDF 있는 공고를 n건 받는다(LLM 안 부름)")
     f.add_argument("--start-page", type=int, default=1, help="목록 시작 쪽")
     f.add_argument("--n", type=int, required=True, help="받을 공고 수")
+    c = sub.add_parser(
+        "check-raw", help="data/raw/만 읽어 수집된 공고 수와 열리지 않는 PDF를 센다(요청 없음)"
+    )
+    c.add_argument("--out", type=Path, default=Path("reports/raw.md"), help="리포트 경로")
     sub.add_parser("measure-normalize", help="모의 추출값 24쌍의 일치 수를 정규화 전·후로 잰다")
     args = parser.parse_args(argv)
 
@@ -46,6 +51,14 @@ def main(argv: list[str] | None = None) -> int:
             RAW_DIR, Path("tests/fixtures/pdf_forms.json"), Path("reports/normalize.md")
         )
         return 0
+
+    if args.cmd == "check-raw":
+        found = check_raw(RAW_DIR, args.out)
+        print(
+            f"공고 디렉터리 {found.dirs}개, 수집된 공고 {len(found.collected)}건, "
+            f"열리지 않는 PDF {len(found.unreadable)}건, PDF가 없는 공고 {len(found.no_pdf)}건"
+        )
+        return 0 if not found.unreadable else 1
 
     if args.cmd == "fetch":
         with make_client() as client:

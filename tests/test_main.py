@@ -139,3 +139,28 @@ def test_fetch_prints_how_many_requests_were_retried(monkeypatch, capsys):
     monkeypatch.setattr(cli, "fetch_notices", lambda *a: result)
     assert cli.main(["fetch", "--n", "1"]) == 0
     assert "다시 시도 3회(목록 1, 상세 0, PDF 2)" in capsys.readouterr().out
+
+
+def test_check_raw_reads_data_raw_writes_the_report_and_needs_no_llm(monkeypatch, fake_llm, capsys):
+    from cheongyak_extract.raw_check import RawScan
+
+    calls = []
+
+    def fake(raw_dir, out):
+        calls.append((str(raw_dir), str(out)))
+        return RawScan(3, ["A", "B"], [], [("C", "상세에 공고문 링크 없음")], [])
+
+    monkeypatch.setattr(cli, "check_raw", fake)
+    assert cli.main(["check-raw"]) == 0
+    assert calls == [("data/raw", "reports/raw.md")]
+    assert fake_llm == []  # make_ask를 부르지 않는다
+    assert "수집된 공고 2건" in capsys.readouterr().out
+
+
+def test_check_raw_exits_1_when_a_pdf_does_not_open(monkeypatch):
+    from cheongyak_extract.raw_check import RawScan
+
+    monkeypatch.setattr(
+        cli, "check_raw", lambda *a: RawScan(1, [], [("A", "FileDataError")], [], [])
+    )
+    assert cli.main(["check-raw", "--out", "x.md"]) == 1
