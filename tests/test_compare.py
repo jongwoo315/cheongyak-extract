@@ -4,6 +4,7 @@ from cheongyak_extract.compare import (
     Cell,
     Counts,
     LlmNew,
+    _same_cells,
     count,
     cross,
     parse_llm_new,
@@ -100,6 +101,12 @@ def test_parse_fails_loudly_when_the_report_format_changed():
     for fn in (parse_llm_new, parse_llm_tune, parse_regex_summary, parse_regex_tune_last):
         with pytest.raises(ValueError):
             fn("표가 없다")
+
+
+def test_same_cells_refuses_when_llm_and_regex_counted_different_cells():
+    _same_cells("재는 20건", 2, [cell("A", "f", "right"), cell("B", "f", "blank")])
+    with pytest.raises(SystemExit, match="다듬는 29건"):
+        _same_cells("다듬는 29건", 232, [cell("A", "f", "right")])
 
 
 def cell(pbno, field, state, value=None, truth="정답"):

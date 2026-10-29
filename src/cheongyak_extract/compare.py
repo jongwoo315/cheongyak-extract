@@ -288,16 +288,20 @@ def _same(label: str, cells: list[Cell], report: Counts) -> None:
         raise SystemExit(f"{label}: 다시 센 값 {count(cells)}이 리포트 합계 {report}와 다르다")
 
 
+def _same_cells(label: str, llm_total: int, cells: list[Cell]) -> None:
+    """LLM과 정규식이 같은 칸 수를 쟀는지 본다. 다르면 서로 다른 공고를 비교하게 된다."""
+    if llm_total != len(cells):
+        raise SystemExit(f"{label}: LLM 칸 {llm_total}개와 정규식 칸 {len(cells)}개가 다르다")
+
+
 def main() -> int:
     llm_new = parse_llm_new(_read("extract-new.md"))
     llm_tune = parse_llm_tune(_read("extract-tune.md"))
     new, _ = regex_cells(parse_pbnos(_read("extract-new.md")))
     tune, _ = regex_cells(parse_pbnos(_read("extract-tune-0.md")))
     more, more_skipped = regex_cells(parse_pbnos(_read("regex-more.md")))
-    if llm_new.counts.total != count(new).total:
-        raise SystemExit(
-            f"LLM 칸 {llm_new.counts.total}개와 정규식 칸 {count(new).total}개가 다르다"
-        )
+    _same_cells("재는 20건", llm_new.counts.total, new)
+    _same_cells("다듬는 29건", llm_tune.total, tune)
     _same("재는 20건", new, parse_regex_summary(_read("regex-new.md")))
     _same("다듬는 29건", tune, parse_regex_tune_last(_read("regex-tune.md")))
     _same("남은 건", more, parse_regex_summary(_read("regex-more.md")))
