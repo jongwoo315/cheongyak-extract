@@ -368,3 +368,90 @@ def test_download_still_skips_when_neither_the_name_nor_the_body_says_pdf(tmp_pa
     with httpx.Client(transport=_transport(pdf_name="a.hwp", pdf_bytes=b"HWP 5.0")) as client:
         with pytest.raises(Skipped, match="PDF가 아님"):
             download(client, "2026000532", "2026000532", "계양", tmp_path, pause=lambda s: None)
+
+
+# --- 일시 오류는 두 번까지 다시 시도한다(5초, 15초 쉰 뒤) ---
+
+
+def _flaky_site(fail: dict[str, list]):
+    """fail: {"list"|"detail"|"pdf": [앞 요청부터 차례로 낼 실패: 상태 코드 또는 예외 클래스]}."""
+    queues = {kind: list(seq) for kind, seq in fail.items()}
+    requests = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        url = str(request.url)
+        kind = "list" if "ListView" in url else "detail" if request.method == "POST" else "pdf"
+        requests.append(kind)
+        if queues.get(kind):
+            failure = queues[kind].pop(0)
+            if isinstance(failure, type):
+                raise failure("", request=request)
+            return httpx.Response(failure)
+        if kind == "list":
+            return httpx.Response(200, text=_list_html(["B"] if "pageIndex=2" in url else []))
+        if kind == "detail":
+            return httpx.Response(200, text='<a href="https://x.kr/getAtchmnfl.do?n=1">pdf</a>')
+        return httpx.Response(
+            200,
+            content=make_pdf("B"),
+            headers={"content-disposition": 'attachment; filename="a.pdf"'},
+        )
+
+    return httpx.MockTransport(handler), requests
+
+
+def _flaky_fetch(tmp_path, fail, n=1):
+    transport, requests = _flaky_site(fail)
+    sleeps = []
+    with httpx.Client(transport=transport) as client:
+        result = fetch_notices(client, tmp_path, 2, n, pause=sleeps.append)
+    return result, requests, sleeps
+
+
+@pytest.mark.parametrize("kind", ["list", "detail", "pdf"])
+def test_a_500_twice_then_a_200_is_received_and_counts_two_retries(tmp_path, kind):
+    result, requests, sleeps = _flaky_fetch(tmp_path, {kind: [500, 500]})
+    assert result.fetched == ["B"] and result.skipped == [] and result.stopped is None
+    assert result.retries == {kind: 2}
+    assert requests.count(kind) == 3
+    assert [s for s in sleeps if s != 2] == [5, 15]  # 첫 재시도 전 5초, 두 번째 전 15초
+
+
+@pytest.mark.parametrize("exc", [httpx.ReadTimeout, httpx.ConnectError, httpx.RemoteProtocolError])
+def test_a_timeout_or_dropped_connection_is_retried(tmp_path, exc):
+    result, _, _ = _flaky_fetch(tmp_path, {"pdf": [exc]})
+    assert result.fetched == ["B"] and result.retries == {"pdf": 1}
+
+
+def test_three_500s_in_a_row_skip_that_notice_after_two_retries(tmp_path):
+    result, requests, _ = _flaky_fetch(tmp_path, {"detail": [500, 500, 500]})
+    assert result.fetched == []
+    assert [p for p, _ in result.skipped] == ["B"] and "500" in result.skipped[0][1]
+    assert result.retries == {"detail": 2}
+    assert requests.count("detail") == 3  # 세 번째 실패 뒤 더 보내지 않는다
+
+
+@pytest.mark.parametrize("code", [403, 429])
+def test_blocks_are_not_retried(tmp_path, code):
+    result, requests, _ = _flaky_fetch(tmp_path, {"detail": [code]})
+    assert result.skipped and f"{code}" in result.skipped[0][1]
+    assert result.retries == {}
+    assert requests.count("detail") == 1
+
+
+def test_a_404_is_not_retried(tmp_path):
+    result, requests, _ = _flaky_fetch(tmp_path, {"detail": [404]})
+    assert result.retries == {} and requests.count("detail") == 1
+
+
+def test_retries_are_counted_per_request_kind(tmp_path):
+    result, _, _ = _flaky_fetch(tmp_path, {"list": [502], "detail": [500, 500], "pdf": [503]})
+    assert result.fetched == ["B"]
+    assert result.retries == {"list": 1, "detail": 2, "pdf": 1}
+
+
+def test_download_without_a_counter_still_retries(tmp_path):
+    transport, requests = _flaky_site({"detail": [500]})
+    with httpx.Client(transport=transport) as client:
+        out = download(client, "B", "B", "x", tmp_path, pause=lambda s: None)
+    assert (out / "notice.pdf").exists() and requests.count("detail") == 2

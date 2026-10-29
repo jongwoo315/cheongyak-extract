@@ -132,3 +132,10 @@ def test_fetch_prints_what_it_got_and_exits_1_when_it_stopped_early(monkeypatch,
     assert cli.main(["fetch", "--start-page", "2", "--n", "20"]) == 1
     out = capsys.readouterr().out
     assert "2026000508" in out and "429 3번 연속" in out
+
+
+def test_fetch_prints_how_many_requests_were_retried(monkeypatch, capsys):
+    result = FetchResult(["2026000508"], [], None, {"list": 1, "pdf": 2})
+    monkeypatch.setattr(cli, "fetch_notices", lambda *a: result)
+    assert cli.main(["fetch", "--n", "1"]) == 0
+    assert "다시 시도 3회(목록 1, 상세 0, PDF 2)" in capsys.readouterr().out

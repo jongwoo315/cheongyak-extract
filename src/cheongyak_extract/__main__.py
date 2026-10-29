@@ -51,6 +51,11 @@ def main(argv: list[str] | None = None) -> int:
         with make_client() as client:
             got = fetch_notices(client, RAW_DIR, args.start_page, args.n)
         print(f"받은 공고 {len(got.fetched)}건: {' '.join(got.fetched)}")
+        by_kind = ", ".join(
+            f"{label} {got.retries.get(kind, 0)}"
+            for kind, label in (("list", "목록"), ("detail", "상세"), ("pdf", "PDF"))
+        )
+        print(f"다시 시도 {sum(got.retries.values())}회({by_kind})")
         for pbno, why in got.skipped:
             print(f"건너뜀 {pbno}: {why}")
         if got.stopped:

@@ -109,7 +109,7 @@ def test_run_skips_announcement_when_download_fails(tmp_path):
     list_html = (FIXTURES / "list.html").read_bytes()
     detail_html = (FIXTURES / "detail.html").read_bytes()
     pdf = make_pdf_bytes()
-    posts = iter([500, 200, 200])
+    posts = iter([404, 200, 200])  # 500은 download()가 다시 보내므로 쓰지 않는다
 
     def handler(request: httpx.Request) -> httpx.Response:
         if request.method == "POST":
