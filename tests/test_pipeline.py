@@ -230,6 +230,31 @@ def test_evaluate_reads_only_raw_dir_and_writes_report(tmp_path, capsys):
     assert capsys.readouterr().out.strip() == text.strip()
 
 
+def regex_pdf_bytes() -> bytes:
+    doc = pymupdf.open()
+    doc.new_page().insert_text(
+        (72, 72), "■ 공급규모 : 총 500세대 중 일반분양 496세대", fontname="korea"
+    )
+    data = doc.tobytes()
+    doc.close()
+    return data
+
+
+def test_evaluate_without_ask_extracts_with_regex_and_leaves_llm_sections_out(tmp_path):
+    raw = tmp_path / "raw"
+    make_raw(raw, "A1", regex_pdf_bytes())
+    out = tmp_path / "e.md"
+    result = evaluate(["A1"], raw, None, out)
+    assert result.processed == 1 and result.skipped == []
+    text = out.read_text(encoding="utf-8")
+    assert "추출: 정규식" in text
+    assert "| 공급규모 | 1 | 100% | 0% | 0 | 0 | 100% | 0 | 0 |" in text
+    assert "| 공급위치 | 1 | 0% | 100% |" in text  # 라벨이 없으면 비운다
+    assert "정답 있는 칸 8 · 맞음 1 · 비움 7 · 틀리게 채움 0" in text
+    for llm_only in ("A안", "토큰", "LLM이", "모델:", "(C안)"):
+        assert llm_only not in text
+
+
 def test_evaluate_with_two_modes_prefixes_each_skip_reason_with_its_mode(tmp_path):
     out = tmp_path / "e.md"
     result = evaluate(["MISSING"], tmp_path / "raw", scale_ask, out, modes=("T0", "T1"))

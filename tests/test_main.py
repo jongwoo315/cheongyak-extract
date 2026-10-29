@@ -103,6 +103,34 @@ def test_eval_exits_1_when_some_notice_was_skipped(monkeypatch):
     assert cli.main(["eval", "--pbno", "A", "B", "--out", "x.md"]) == 1
 
 
+def test_eval_extractor_defaults_to_llm(monkeypatch, fake_llm):
+    calls = []
+    monkeypatch.setattr(
+        cli, "evaluate", lambda pbnos, raw, ask, *a, **k: calls.append(ask) or Result([], 1, [])
+    )
+    assert cli.main(["eval", "--pbno", "A", "--out", "x.md"]) == 0
+    assert cli.main(["eval", "--pbno", "A", "--out", "x.md", "--extractor", "llm"]) == 0
+    assert calls == [ASK, ASK]
+    assert len(fake_llm) == 2
+
+
+def test_eval_regex_makes_no_llm_client_and_needs_no_api_key(monkeypatch, fake_llm):
+    calls = []
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.setattr(
+        cli, "evaluate", lambda pbnos, raw, ask, *a, **k: calls.append(ask) or Result([], 1, [])
+    )
+    monkeypatch.setattr(cli, "model_from_env", lambda: pytest.fail("모델을 읽지 않는다"))
+    assert cli.main(["eval", "--pbno", "A", "--out", "x.md", "--extractor", "regex"]) == 0
+    assert calls == [None]  # ask가 없으면 evaluate가 정규식으로 뽑는다
+    assert fake_llm == []  # make_ask를 부르지 않는다
+
+
+def test_eval_rejects_unknown_extractor():
+    with pytest.raises(SystemExit):
+        cli.main(["eval", "--pbno", "A", "--out", "x.md", "--extractor", "rule"])
+
+
 def test_eval_requires_pbno_and_out():
     for args in (["eval", "--out", "x.md"], ["eval", "--pbno", "A"]):
         with pytest.raises(SystemExit):
