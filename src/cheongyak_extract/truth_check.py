@@ -226,7 +226,10 @@ def run_check(
     out: Path,
     expected: int = CELLS,
 ) -> Checked:
-    """data/raw/<pbno>/의 detail.html·notice.pdf와 라벨 파일만 읽어 리포트를 쓴다. 요청 없음."""
+    """data/raw/<pbno>/의 detail.html·notice.pdf, 라벨 파일, extract_new(LLM 결과)만 읽는다.
+
+    요청은 없다. 정규식 결과는 data/raw/의 PDF 텍스트로 다시 뽑는다.
+    """
     labels = json.loads(labels_path.read_text(encoding="utf-8"))
     truths = {
         p: parse_truth((raw_dir / p / "detail.html").read_text(encoding="utf-8")) for p in pbnos
@@ -237,7 +240,9 @@ def run_check(
     wrong = compare.parse_llm_new(md).wrong_cells
     values = llm_values(md)
     if set(values) != wrong:
-        raise ValueError("틀리게 채운 칸 표의 칸이 C안 합계가 센 칸과 다르다")
+        raise ValueError(
+            "틀리게 채운 칸 표의 칸이 C안 합계가 센 칸과 다르다"
+        )
     regex, skipped = compare.regex_cells(pbnos, raw_dir)
     if skipped:  # 건너뛴 공고의 칸이 말없이 빠지면 합계 줄이 실제보다 작게 나온다
         raise ValueError(f"정규식이 건너뛴 공고가 있다: {skipped}")

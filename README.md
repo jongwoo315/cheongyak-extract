@@ -81,7 +81,7 @@ uv run python -m cheongyak_extract.compare    # reports/regex-vs-llm.md를 다�
 청약홈 정답(HTML)을 공고문 PDF 값과 대조하려면(청약홈과 OpenAI에 요청하지 않는다):
 
 ```bash
-uv run python -m cheongyak_extract check-truth    # labels/pdf-values-20.json과 data/raw/를 읽어 reports/truth-check.md를 쓴다
+uv run python -m cheongyak_extract check-truth    # labels/pdf-values-20.json·data/raw/·reports/extract-new.md(대조할 공고 목록과 LLM 틀린 칸)를 읽어 reports/truth-check.md를 쓴다
 ```
 
 `labels/pdf-values-20.json`은 공고 20건 × 필드 8개 = 160칸의 PDF 값이다. 칸마다 `value`·`quote`(PDF 텍스트에서 글자 그대로)·`page`·`note`를 적고,
