@@ -241,7 +241,7 @@ def run_check(
     values = llm_values(md)
     if set(values) != wrong:
         raise ValueError(
-            "틀리게 채운 칸 표의 칸이 C안 합계가 센 칸과 다르다"
+            "틀리게 채운 칸 표를 두 방식으로 읽은 결과가 다르다(행이 빠졌거나 표 서식이 바뀌었다)"
         )
     regex, skipped = compare.regex_cells(pbnos, raw_dir)
     if skipped:  # 건너뛴 공고의 칸이 말없이 빠지면 합계 줄이 실제보다 작게 나온다
