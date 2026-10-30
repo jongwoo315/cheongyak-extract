@@ -58,11 +58,15 @@ def check_cells(
 
     라벨에 공고나 필드가 빠졌거나 남으면, 칸 수가 expected가 아니면 ValueError다.
     """
+    if not isinstance(labels, dict):
+        raise ValueError("라벨 파일의 맨 위는 공고번호를 키로 하는 객체여야 한다")
     out: list[Cell] = []
     for pbno in truths:
         got = labels.get(pbno)
         if got is None:
             raise ValueError(f"{pbno}: 라벨에 이 공고가 없다")
+        if not isinstance(got, dict):
+            raise ValueError(f"{pbno}: 공고의 라벨은 필드를 키로 하는 객체여야 한다")
         if extra := set(got) - set(fields):
             raise ValueError(f"{pbno}: 라벨에 필드가 더 있다: {sorted(extra)}")
         for f in fields:

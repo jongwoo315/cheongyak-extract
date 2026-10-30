@@ -271,3 +271,9 @@ def test_llm_values_rejects_a_row_that_does_not_split_into_six_columns():
     md = "틀리게 채운 칸:\n\n| 2026000001 | 공급규모 | 496세대 | 경기도 A\\ | 근거 | 1 |\n\n토큰:\n"
     with pytest.raises(ValueError, match="열"):
         llm_values(md)
+
+
+@pytest.mark.parametrize("bad", [[], {PB: []}])
+def test_labels_with_the_wrong_shape_raise_value_error(bad):
+    with pytest.raises(ValueError, match="객체"):
+        check_cells(bad, TRUTH, PAGES, FIELDS, 3)
