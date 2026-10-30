@@ -88,6 +88,9 @@ def test_quote_matches_across_line_breaks():
         cell("100", "공급규모 : 100세대", 0),  # 쪽은 1부터다
         cell("100", "공급규모 : 100세대", True),  # bool은 쪽 번호가 아니다
         cell(100, "공급규모 : 100세대", 2),  # 값이 문자열이 아니다
+        cell("", "", None),  # 빈 문자열은 null로 적는다
+        cell("  ", "  ", None),
+        cell("100", "  ", 2),
     ],
 )
 def test_malformed_label_cell_raises(bad):
@@ -249,3 +252,10 @@ def test_run_check_with_wrong_cell_count_raises(tmp_path):
     raw, labels_path, md = write_raw(tmp_path)
     with pytest.raises(ValueError, match="160"):
         run_check([PB], raw, labels_path, md, tmp_path / "x.md")  # 기본 160칸
+
+
+def test_run_check_raises_when_regex_skips_a_notice(tmp_path):
+    raw, labels_path, md = write_raw(tmp_path)
+    (raw / PB / "notice.pdf").write_bytes(make_pdf(""))  # 텍스트가 없어 정규식이 건너뛴다
+    with pytest.raises(ValueError, match=PB):
+        run_check([PB], raw, labels_path, md, tmp_path / "x.md", expected=8)

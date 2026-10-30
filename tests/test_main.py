@@ -221,3 +221,16 @@ def test_check_truth_command_makes_no_client_and_passes_paths(monkeypatch):
             "reports/truth-check.md",
         )
     ]
+
+
+@pytest.mark.parametrize(
+    "error", [ValueError("칸 수"), FileNotFoundError("data/raw"), RuntimeError("pdf")]
+)
+def test_check_truth_exits_1_with_a_message_when_it_cannot_compare(monkeypatch, capsys, error):
+    def boom(*a, **k):
+        raise error
+
+    monkeypatch.setattr(cli, "_new_pbnos", lambda: ["2026000001"])
+    monkeypatch.setattr(cli, "run_check", boom)
+    assert cli.main(["check-truth"]) == 1
+    assert "대조할 수 없다" in capsys.readouterr().err

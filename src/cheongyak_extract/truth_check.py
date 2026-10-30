@@ -39,8 +39,9 @@ def _check_label(pbno: str, field: str, raw: object) -> dict:
     page = raw["page"]
     if page is not None and (not isinstance(page, int) or isinstance(page, bool) or page < 1):
         raise ValueError(f"{where}: page는 1 이상의 정수이거나 null이어야 한다")
-    has_value = bool((raw["value"] or "").strip())
-    has_quote = bool((raw["quote"] or "").strip())
+    if any(raw[k] is not None and not raw[k].strip() for k in ("value", "quote")):
+        raise ValueError(f"{where}: 값이 없으면 빈 문자열이 아니라 null로 적는다")
+    has_value, has_quote = raw["value"] is not None, raw["quote"] is not None
     if has_value != has_quote or has_quote != (raw["page"] is not None):
         raise ValueError(f"{where}: value·quote·page는 모두 있거나 모두 null이어야 한다")
     return raw
@@ -231,7 +232,9 @@ def run_check(
     values = llm_values(md)
     if set(values) != wrong:
         raise ValueError("틀리게 채운 칸 표의 칸이 C안 합계가 센 칸과 다르다")
-    regex, _ = compare.regex_cells(pbnos, raw_dir)
+    regex, skipped = compare.regex_cells(pbnos, raw_dir)
+    if skipped:  # 건너뛴 공고의 칸이 말없이 빠지면 합계 줄이 실제보다 작게 나온다
+        raise ValueError(f"정규식이 건너뛴 공고가 있다: {skipped}")
     regex_wrong = {(c.pbno, c.field): c.value for c in regex if c.state == "wrong"}
     checked = Checked(cells, reread(cells, values), reread(cells, regex_wrong))
     out.parent.mkdir(parents=True, exist_ok=True)

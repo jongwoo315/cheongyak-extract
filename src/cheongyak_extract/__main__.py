@@ -75,7 +75,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.cmd == "check-truth":
         try:
             checked = run_check(_new_pbnos(), RAW_DIR, args.labels, EXTRACT_NEW, args.out)
-        except ValueError as e:
+        except (ValueError, OSError, RuntimeError) as e:  # RuntimeError는 pymupdf가 PDF를 못 열 때
             print(f"대조할 수 없다: {e}", file=sys.stderr)
             return 1
         same = sum(c.same for c in checked.cells)
