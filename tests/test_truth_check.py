@@ -84,6 +84,10 @@ def test_quote_matches_across_line_breaks():
         cell("100", "공급규모 : 100세대", None),  # 쪽이 없다
         cell(None, "공급규모 : 100세대", 2),  # 값이 없는데 근거가 있다
         {"value": "100", "quote": "공급규모 : 100세대", "page": 2},  # note 키가 없다
+        cell("100", "공급규모 : 100세대", "2"),  # 쪽이 문자열이다
+        cell("100", "공급규모 : 100세대", 0),  # 쪽은 1부터다
+        cell("100", "공급규모 : 100세대", True),  # bool은 쪽 번호가 아니다
+        cell(100, "공급규모 : 100세대", 2),  # 값이 문자열이 아니다
     ],
 )
 def test_malformed_label_cell_raises(bad):

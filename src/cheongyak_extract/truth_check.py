@@ -34,6 +34,11 @@ def _check_label(pbno: str, field: str, raw: object) -> dict:
     where = f"{pbno} {field}"
     if not isinstance(raw, dict) or set(raw) != _KEYS:
         raise ValueError(f"{where}: 칸은 {sorted(_KEYS)} 키를 모두 가진 객체여야 한다")
+    if not all(raw[k] is None or isinstance(raw[k], str) for k in ("value", "quote", "note")):
+        raise ValueError(f"{where}: value·quote·note는 문자열이거나 null이어야 한다")
+    page = raw["page"]
+    if page is not None and (not isinstance(page, int) or isinstance(page, bool) or page < 1):
+        raise ValueError(f"{where}: page는 1 이상의 정수이거나 null이어야 한다")
     has_value = bool((raw["value"] or "").strip())
     has_quote = bool((raw["quote"] or "").strip())
     if has_value != has_quote or has_quote != (raw["page"] is not None):
