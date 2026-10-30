@@ -277,3 +277,12 @@ def test_llm_values_rejects_a_row_that_does_not_split_into_six_columns():
 def test_labels_with_the_wrong_shape_raise_value_error(bad):
     with pytest.raises(ValueError, match="객체"):
         check_cells(bad, TRUTH, PAGES, FIELDS, 3)
+
+
+def test_run_check_raises_when_the_wrong_cell_table_loses_a_row(tmp_path):
+    raw, labels_path, md = write_raw(tmp_path)
+    md.write_text(
+        EXTRACT_NEW.replace("| 2026000001 | 공급규모 | 496세대 | 400세대 | 근거 | 1 |\n", "")
+    )
+    with pytest.raises(ValueError, match="틀리게 채운 칸"):
+        run_check([PB], raw, labels_path, md, tmp_path / "x.md", expected=8)
