@@ -4,6 +4,7 @@ from cheongyak_extract import __main__ as cli
 from cheongyak_extract.fetch import FetchResult
 from cheongyak_extract.pipeline import Result
 from cheongyak_extract.report import FieldMetrics
+from cheongyak_extract.truth_check import Checked
 
 ASK = object()
 
@@ -192,3 +193,31 @@ def test_check_raw_exits_1_when_a_pdf_does_not_open(monkeypatch):
         cli, "check_raw", lambda *a: RawScan(1, [], [("A", "FileDataError")], [], [])
     )
     assert cli.main(["check-raw", "--out", "x.md"]) == 1
+
+
+def test_check_truth_command_makes_no_client_and_passes_paths(monkeypatch):
+    calls = []
+
+    def spy(pbnos, raw_dir, labels_path, md, out):
+        calls.append((len(pbnos), str(raw_dir), str(labels_path), str(md), str(out)))
+        return Checked([], [], [])
+
+    def no_network(*a, **k):
+        raise AssertionError("check-truth는 청약홈·OpenAI에 요청하지 않는다")
+
+    monkeypatch.setattr(cli, "run_check", spy)
+    monkeypatch.setattr(cli, "make_client", no_network)
+    monkeypatch.setattr(cli, "make_ask", no_network)
+    monkeypatch.setattr(
+        cli, "_new_pbnos", lambda: ["2026000001", "2026000002"]
+    )  # reports/extract-new.md 맨 위 목록
+    assert cli.main(["check-truth"]) == 0
+    assert calls == [
+        (
+            2,
+            "data/raw",
+            "labels/pdf-values-20.json",
+            "reports/extract-new.md",
+            "reports/truth-check.md",
+        )
+    ]

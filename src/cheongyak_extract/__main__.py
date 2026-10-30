@@ -2,16 +2,23 @@ import argparse
 import sys
 from pathlib import Path
 
+from cheongyak_extract.compare import parse_pbnos
 from cheongyak_extract.fetch import fetch_notices, make_client
 from cheongyak_extract.llm import make_ask, model_from_env
 from cheongyak_extract.measure import measure_normalize
 from cheongyak_extract.pdf_text import TEXT_MODES
 from cheongyak_extract.pipeline import evaluate, run
 from cheongyak_extract.raw_check import check_raw
+from cheongyak_extract.truth_check import run_check
 
 RAW_DIR = Path("data/raw")
 LLM_CACHE = Path("data/llm")
+EXTRACT_NEW = Path("reports/extract-new.md")  # 재는 공고 20건의 맨 위 목록과 LLM 결과
 EXTRACTORS = ("llm", "regex")
+
+
+def _new_pbnos() -> list[str]:
+    return parse_pbnos(EXTRACT_NEW.read_text(encoding="utf-8"))
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -50,6 +57,12 @@ def main(argv: list[str] | None = None) -> int:
         "check-raw", help="data/raw/만 읽어 수집된 공고 수와 열리지 않는 PDF를 센다(요청 없음)"
     )
     c.add_argument("--out", type=Path, default=Path("reports/raw.md"), help="리포트 경로")
+    t = sub.add_parser(
+        "check-truth",
+        help="청약홈 정답(HTML)과 공고문 PDF 값을 20건 대조한다(청약홈·OpenAI 요청 없음)",
+    )
+    t.add_argument("--labels", type=Path, default=Path("labels/pdf-values-20.json"))
+    t.add_argument("--out", type=Path, default=Path("reports/truth-check.md"), help="리포트 경로")
     sub.add_parser("measure-normalize", help="모의 추출값 24쌍의 일치 수를 정규화 전·후로 잰다")
     args = parser.parse_args(argv)
 
@@ -58,6 +71,17 @@ def main(argv: list[str] | None = None) -> int:
             RAW_DIR, Path("tests/fixtures/pdf_forms.json"), Path("reports/normalize.md")
         )
         return 0
+
+    if args.cmd == "check-truth":
+        try:
+            checked = run_check(_new_pbnos(), RAW_DIR, args.labels, EXTRACT_NEW, args.out)
+        except ValueError as e:
+            print(f"대조할 수 없다: {e}", file=sys.stderr)
+            return 1
+        same = sum(c.same for c in checked.cells)
+        bad = sum(c.ungrounded for c in checked.cells)
+        print(f"정규화 뒤 같은 칸 {same}/{len(checked.cells)}, 근거를 못 찾은 칸 {bad}")
+        return 0 if not bad else 1
 
     if args.cmd == "check-raw":
         found = check_raw(RAW_DIR, args.out)

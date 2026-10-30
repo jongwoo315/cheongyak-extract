@@ -1,6 +1,21 @@
+import json
+import shutil
+from pathlib import Path
+
 import pytest
 
-from cheongyak_extract.truth_check import check_cells
+from cheongyak_extract.extract import FIELDS as ALL_FIELDS
+from cheongyak_extract.truth_check import (
+    Checked,
+    Reread,
+    cause,
+    check_cells,
+    llm_values,
+    render,
+    reread,
+    run_check,
+)
+from pdfs import make_pdf
 
 FIELDS = ("공급규모", "시공사", "입주예정월")
 PB = "2026000001"
@@ -101,3 +116,132 @@ def test_cell_count_must_match_expected():
         run(labels(), cells=160)
     with pytest.raises(ValueError, match="0"):
         check_cells({}, {}, {}, FIELDS, 3)
+
+
+# ---- Task 2: 리포트와 명령 ----
+
+
+def test_cause_reads_the_note_prefix():
+    assert cause("표기 차이: 쉼표 하나") == "표기 차이"
+    assert cause("PDF에 없음: 전 쪽") == "PDF에 없음"
+    assert cause("정정: 2쪽 정정 공고") == "정정"
+    assert cause("다른 값: 예") == "다른 값"
+    assert cause(None) == "원인 미기재"
+    assert cause("그냥 메모") == "원인 미기재"
+
+
+LLM_MD = """\
+틀리게 채운 칸:
+
+| 공고 | 필드 | 정답 | 추출값 | 근거 | 쪽 |
+| --- | --- | --- | --- | --- | --- |
+| 2026000001 | 공급규모 | 100세대 | 90세대 | 근거 | 2 |
+| 2026000001 | 시공사 | (주)가나건설 | 가나건설 \\| 다라건설 | 근거 | 2 |
+
+토큰:
+"""
+
+
+def test_llm_values_reads_the_extracted_column_with_escaped_bars():
+    assert llm_values(LLM_MD) == {
+        ("2026000001", "공급규모"): "90세대",
+        ("2026000001", "시공사"): "가나건설 | 다라건설",
+    }
+
+
+def test_reread_compares_extracted_value_with_pdf_value_after_normalize():
+    cells = run(labels(공급규모=cell("90", "공급규모 : 100세대", 2)))
+    got = reread(
+        cells,
+        {(PB, "공급규모"): "90세대", (PB, "시공사"): "다라건설"},
+    )
+    assert got == [
+        Reread(PB, "공급규모", "90세대", "90", True),
+        Reread(PB, "시공사", "다라건설", "가나건설 주식회사", False),
+    ]
+
+
+def test_render_top_lines_causes_fields_and_unequal_cells():
+    cells = run(
+        labels(
+            공급규모=cell("90", "공급규모 : 100세대", 2, "다른 값: 예"),
+            시공사=cell(None, note="PDF에 없음: 전 쪽"),
+            입주예정월=cell("2026년 10월", "없는 문장", 2),
+        )
+    )
+    md = render(Checked(cells, [Reread(PB, "공급규모", "90세대", "90", True)], []), FIELDS)
+    assert "정규화 뒤 같은 칸: 1/3 (33.3%)" in md
+    assert "근거를 그 쪽에서 못 찾은 칸: 1" in md
+    assert "| 다른 값 | 1 |" in md and "| PDF에 없음 | 1 |" in md
+    assert "| 표기 차이 | 0 |" in md and "| 정정 | 0 |" in md
+    assert "| 공급규모 | 1 | 0 |" in md  # 필드별: 칸 1, 같은 칸 0
+    assert "| 입주예정월 | 1 | 1 |" in md
+    # 같지 않은 칸 전부: HTML 값·PDF 값·쪽·note
+    assert "| 2026000001 | 공급규모 | 100세대 | 90 | 2 | 다른 값: 예 |" in md
+    assert "| 2026000001 | 시공사 | (주)가나건설 | — | — | PDF에 없음: 전 쪽 |" in md
+    # 합계 줄
+    assert "LLM 1칸 중 PDF 값과 같은 칸 1" in md
+    assert "정규식 0칸 중 PDF 값과 같은 칸 0" in md
+
+
+def test_render_reference_ratio_counts_notation_differences_as_same():
+    cells = run(labels(공급규모=cell("90", "공급규모 : 100세대", 2, "표기 차이: 가짜")))
+    md = render(Checked(cells, [], []), FIELDS)
+    assert "표기 차이를 같은 칸으로 쳤을 때: 3/3 (100.0%)" in md
+
+
+def test_render_lists_ungrounded_cells_with_their_quote():
+    cells = run(labels(공급규모=cell("100", "없는 문장", 2)))
+    md = render(Checked(cells, [], []), FIELDS)
+    assert "| 2026000001 | 공급규모 | 2 | 없는 문장 |" in md
+
+
+RAW_HTML = Path("tests/fixtures/detail.html")
+EXTRACT_NEW = """\
+| C | 8 | 7 (88%) | 0 (0%) | 1 (12%) |
+| 공급위치 | 8 | 7 (88%) | 7 (88%) | 7 (88%) |
+
+틀리게 채운 칸:
+
+| 공고 | 필드 | 정답 | 추출값 | 근거 | 쪽 |
+| --- | --- | --- | --- | --- | --- |
+| 2026000001 | 공급규모 | 496세대 | 400세대 | 근거 | 1 |
+
+토큰:
+"""
+
+
+def write_raw(tmp_path):
+    raw = tmp_path / "raw" / PB
+    raw.mkdir(parents=True)
+    shutil.copy(RAW_HTML, raw / "detail.html")
+    (raw / "notice.pdf").write_bytes(make_pdf("supply 496"))
+    md = tmp_path / "extract-new.md"
+    md.write_text(EXTRACT_NEW, encoding="utf-8")
+    lab = {
+        PB: {
+            f: {"value": None, "quote": None, "page": None, "note": "PDF에 없음: 시험"}
+            for f in ALL_FIELDS
+        }
+    }
+    lab[PB]["공급규모"] = cell("496", "supply 496", 1)
+    path = tmp_path / "labels.json"
+    path.write_text(json.dumps(lab, ensure_ascii=False), encoding="utf-8")
+    return tmp_path / "raw", path, md
+
+
+def test_run_check_writes_the_report_from_files_without_network(tmp_path):
+    raw, labels_path, md = write_raw(tmp_path)
+    out = tmp_path / "out" / "truth-check.md"
+    got = run_check([PB], raw, labels_path, md, out, expected=8)
+    text = out.read_text(encoding="utf-8")
+    assert "정규화 뒤 같은 칸: 1/8 (12.5%)" in text
+    assert "근거를 그 쪽에서 못 찾은 칸: 0" in text
+    assert len(got.cells) == 8
+    assert [(r.field, r.same) for r in got.llm] == [("공급규모", False)]
+
+
+def test_run_check_with_wrong_cell_count_raises(tmp_path):
+    raw, labels_path, md = write_raw(tmp_path)
+    with pytest.raises(ValueError, match="160"):
+        run_check([PB], raw, labels_path, md, tmp_path / "x.md")  # 기본 160칸
