@@ -7,7 +7,7 @@
 구현은 AI 에이전트가 했다. 티켓마다 무엇을 성공으로 볼지는 착수 전에 내가 먼저 한 줄로 썼고,
 PR이 그 기준을 맞췄는지는 내가 판정했다. 2026-10-25부터 쌓았다.
 
-티켓 5개 · 판정 7건 · jw 기준으로 통과 5 · 반려 2 · 유보 0
+티켓 6개 · 판정 8건 · jw 기준으로 통과 6 · 반려 2 · 유보 0
 
 자동 기준과 내 판정이 갈린 티켓:
 
@@ -78,6 +78,16 @@ uv run python -m cheongyak_extract.compare    # reports/regex-vs-llm.md를 다�
 
 둘 이상 주면 같은 공고를 방식마다 따로 추출해 한 리포트에 나란히 쓰고 방식별 입력 토큰 합계를 적는다.
 
+청약홈 정답(HTML)을 공고문 PDF 값과 대조하려면(청약홈과 OpenAI에 요청하지 않는다):
+
+```bash
+uv run python -m cheongyak_extract check-truth    # labels/pdf-values-20.json·data/raw/·reports/extract-new.md(대조할 공고 목록과 LLM 틀린 칸)를 읽어 reports/truth-check.md를 쓴다
+```
+
+`labels/pdf-values-20.json`은 공고 20건 × 필드 8개 = 160칸의 PDF 값이다. 칸마다 `value`·`quote`(PDF 텍스트에서 글자 그대로)·`page`·`note`를 적고,
+코드가 `quote`가 그 쪽에 있는지 확인한다. 칸이 160개가 아니거나 필드·공고가 빠지면 에러를 낸다.
+근거를 못 찾은 칸이 하나라도 있으면 종료 코드 1이다. 같은 칸 비율이 기준에 걸리는지는 리포트를 읽는 사람이 판정한다.
+
 ## 흐름
 
 ```
@@ -102,7 +112,10 @@ normalize + report (필드별 지표 표)     →  stdout + reports/*.md
   [reports/regex-new.md](reports/regex-new.md)(재는 20건), [reports/regex-more.md](reports/regex-more.md)(남은 101건 중 100건, 정규식만. 1건은 스캔 PDF라 건너뜀)
 - 수집(#151): `data/raw/`에 수집된 공고 150건, 열리지 않는 PDF 0건.
   [reports/raw.md](reports/raw.md)(`check-raw`), [reports/fetch.md](reports/fetch.md)(수집 기록). 150건에는 LLM 추출·`eval`을 아직 돌리지 않았다
-- 이후 티켓: PDF에만 있는 필드 #152, 정답 수동 대조 #149
+- 청약홈 정답과 PDF 값 대조(#149): 재는 20건 160칸에서 정규화 뒤 같은 칸은 155칸(96.9%), 근거를 PDF에서 못 찾은 칸은 0이다.
+  같지 않은 5칸은 표기 차이 3(괄호·쉼표)·다른 값 2(입주예정월 1, 시공사 1)다. PDF 값은 구현 루프가 PDF를 읽고 적었다.
+  [reports/truth-check.md](reports/truth-check.md), [labels/pdf-values-20.json](labels/pdf-values-20.json)
+- 이후 티켓: PDF에만 있는 필드 #152
 
 ## 테스트
 
