@@ -234,3 +234,13 @@ def test_check_truth_exits_1_with_a_message_when_it_cannot_compare(monkeypatch, 
     monkeypatch.setattr(cli, "run_check", boom)
     assert cli.main(["check-truth"]) == 1
     assert "대조할 수 없다" in capsys.readouterr().err
+
+
+def test_check_truth_exits_1_when_a_quote_is_not_found(monkeypatch, capsys):
+    from cheongyak_extract.truth_check import Cell
+
+    ungrounded = Cell("2026000001", "공급규모", "100", "100", 2, "없는 문장", None, True, True)
+    monkeypatch.setattr(cli, "_new_pbnos", lambda: ["2026000001"])
+    monkeypatch.setattr(cli, "run_check", lambda *a, **k: Checked([ungrounded], [], []))
+    assert cli.main(["check-truth"]) == 1
+    assert capsys.readouterr().out.strip() == "정규화 뒤 같은 칸 1/1, 근거를 못 찾은 칸 1"
