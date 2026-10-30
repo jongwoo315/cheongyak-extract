@@ -259,3 +259,15 @@ def test_run_check_raises_when_regex_skips_a_notice(tmp_path):
     (raw / PB / "notice.pdf").write_bytes(make_pdf(""))  # 텍스트가 없어 정규식이 건너뛴다
     with pytest.raises(ValueError, match=PB):
         run_check([PB], raw, labels_path, md, tmp_path / "x.md", expected=8)
+
+
+def test_llm_values_keeps_a_value_with_a_form_feed_whole():
+    row = "| 2026000001 | 공급규모 | 496세대 | 서울시\x0c강남구 | 근거 | 1 |"
+    md = f"틀리게 채운 칸:\n\n{row}\n\n토큰:\n"
+    assert llm_values(md) == {("2026000001", "공급규모"): "서울시\x0c강남구"}
+
+
+def test_llm_values_rejects_a_row_that_does_not_split_into_six_columns():
+    md = "틀리게 채운 칸:\n\n| 2026000001 | 공급규모 | 496세대 | 경기도 A\\ | 근거 | 1 |\n\n토큰:\n"
+    with pytest.raises(ValueError, match="열"):
+        llm_values(md)

@@ -120,10 +120,12 @@ def llm_values(md: str) -> dict[tuple[str, str], str | None]:
     if part is None:
         raise ValueError("리포트에서 틀리게 채운 칸 표를 못 찾았다")
     out: dict[tuple[str, str], str | None] = {}
-    for line in part[1].splitlines():
+    for line in part[1].split("\n"):  # splitlines()는 \r·\x0c 같은 글자에서도 잘라 추출값이 끊긴다
         if not re.match(r"\| \d{10} \| ", line):
             continue
         cols = re.split(r"(?<!\\) \| ", line.removeprefix("| ").removesuffix(" |"))
+        if len(cols) != 6:
+            raise ValueError(f"틀리게 채운 칸 표의 열이 {len(cols)}개다. 6개여야 한다: {line[:60]}")
         value = cols[3].replace("\\|", "|").replace(" ⏎ ", "\n")
         out[(cols[0], cols[1])] = None if value == "—" else value
     return out
