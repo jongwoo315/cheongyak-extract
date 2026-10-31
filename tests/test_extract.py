@@ -321,3 +321,42 @@ def test_prompt_keeps_the_developer_to_one_company_and_the_builder_to_the_column
     assert "이름 없는 칸" in builder and "나머지는 모두 시공사" in builder
     assert "같은 회사면 둘 다" in builder
     assert "월.일만 있으면" in prompt
+
+
+TWO = ex.FieldSet(
+    ("가필드", "나필드"),
+    {"가필드": "가 설명", "나필드": "나 설명"},
+    "다음 2개 필드를 찾는다.\n필드:\n",
+)
+
+
+def test_default_field_set_is_the_eight_fields_and_changes_neither_prompt_nor_schema():
+    assert ex.EIGHT_FIELDS.names == FIELDS
+    assert ex.EIGHT_FIELDS.schema == ex.OUTPUT_SCHEMA
+    assert build_prompt(PAGES, ex.EIGHT_FIELDS) == build_prompt(PAGES)
+    assert build_prompt(PAGES).startswith(ex.PROMPT_HEAD)
+
+
+def test_another_field_set_puts_only_its_fields_in_prompt_and_schema():
+    prompt = build_prompt(PAGES, TWO)
+    assert prompt.startswith(TWO.head)
+    assert "- 가필드: 가 설명\n- 나필드: 나 설명\n" in prompt
+    assert "공급위치" not in prompt
+    assert tuple(TWO.schema["properties"]) == TWO.names
+    assert TWO.schema["required"] == list(TWO.names)
+    assert TWO.schema["additionalProperties"] is False
+
+
+def test_extract_reads_only_the_keys_of_the_given_field_set():
+    body = {"가필드": cell("358세대", "일반분양 358세대", 2), "나필드": cell(None, None, None)}
+    out = extract(PAGES, lambda p: json.dumps(body, ensure_ascii=False), fields=TWO)
+    assert tuple(out.fields) == TWO.names
+    assert out.fields["가필드"].value == "358세대"
+    assert out.blanked == {"나필드": ex.NO_VALUE}
+
+
+def test_extract_with_another_field_set_reports_a_missing_key_and_bad_json():
+    out = extract(PAGES, lambda p: json.dumps({"가필드": cell(None, None, None)}), fields=TWO)
+    assert out.blanked["나필드"] == ex.NO_KEY
+    bad = ex.extract_rules(PAGES, lambda p: "[]", TWO)["C"]
+    assert tuple(bad.fields) == TWO.names and set(bad.blanked.values()) == {ex.BAD_JSON}

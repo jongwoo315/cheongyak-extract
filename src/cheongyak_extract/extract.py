@@ -108,13 +108,19 @@ _CELL = {
     "required": ["value", "evidence", "page"],
     "additionalProperties": False,
 }
-# structured outputs(strict)용 응답 모양. 8개 키 전부 required
-OUTPUT_SCHEMA = {
-    "type": "object",
-    "properties": {f: _CELL for f in FIELDS},
-    "required": list(FIELDS),
-    "additionalProperties": False,
-}
+
+
+def _schema(names: tuple[str, ...]) -> dict:
+    """structured outputs(strict)용 응답 모양. 키 전부 required"""
+    return {
+        "type": "object",
+        "properties": {f: _CELL for f in names},
+        "required": list(names),
+        "additionalProperties": False,
+    }
+
+
+OUTPUT_SCHEMA = _schema(FIELDS)
 
 _FIELD_HELP = {
     "공급위치": "'■ 공급위치' 줄의 소재지 전체(지번 주소, 단지·블록 이름). 괄호·기호도 글자 그대로",
@@ -188,10 +194,26 @@ PROMPT_HEAD = """\
 """
 
 
-def build_prompt(pages: list[str]) -> str:
-    helps = "".join(f"- {f}: {_FIELD_HELP[f]}\n" for f in FIELDS)
+@dataclass(frozen=True)
+class FieldSet:
+    """한 번에 묻는 필드 묶음: 이름, 필드마다 설명, 프롬프트 머리말."""
+
+    names: tuple[str, ...]
+    help: dict[str, str]
+    head: str
+
+    @property
+    def schema(self) -> dict:
+        return _schema(self.names)
+
+
+EIGHT_FIELDS = FieldSet(FIELDS, _FIELD_HELP, PROMPT_HEAD)  # 인자를 안 주면 쓰는 묶음
+
+
+def build_prompt(pages: list[str], fields: FieldSet = EIGHT_FIELDS) -> str:
+    helps = "".join(f"- {f}: {fields.help[f]}\n" for f in fields.names)
     body = "".join(f"<page {i}>\n{t}\n</page>\n" for i, t in enumerate(pages, start=1))
-    return f"{PROMPT_HEAD}{helps}\n공고문:\n{body}"
+    return f"{fields.head}{helps}\n공고문:\n{body}"
 
 
 def _text(v: object) -> bool:
@@ -224,9 +246,11 @@ def _check(raw: object, pages: list[str], rule: str) -> tuple[Extraction, str | 
     return Extraction(value.strip(), evidence, page), None
 
 
-def extract_rules(pages: list[str], ask: Ask) -> dict[str, Extracted]:
-    """LLM을 한 번 불러 8개 필드를 받고, 같은 응답에 A·B·C안을 각각 걸어 결과를 돌려준다."""
-    raw = ask(build_prompt(pages))  # 호출 쪽 예외를 응답 모양 오류로 삼키지 않는다
+def extract_rules(
+    pages: list[str], ask: Ask, fields: FieldSet = EIGHT_FIELDS
+) -> dict[str, Extracted]:
+    """LLM을 한 번 불러 fields의 필드를 받고, 같은 응답에 A·B·C안을 각각 걸어 결과를 돌려준다."""
+    raw = ask(build_prompt(pages, fields))  # 호출 쪽 예외를 응답 모양 오류로 삼키지 않는다
     try:
         data = json.loads(raw)
     except json.JSONDecodeError:
@@ -234,20 +258,24 @@ def extract_rules(pages: list[str], ask: Ask) -> dict[str, Extracted]:
     out = {}
     for rule in RULES:
         if not isinstance(data, dict):
-            out[rule] = Extracted({f: EMPTY for f in FIELDS}, {f: BAD_JSON for f in FIELDS})
+            out[rule] = Extracted(
+                {f: EMPTY for f in fields.names}, {f: BAD_JSON for f in fields.names}
+            )
             continue
-        fields: dict[str, Extraction] = {}
+        got: dict[str, Extraction] = {}
         blanked: dict[str, str] = {}
-        for f in FIELDS:
-            fields[f], why = _check(data[f], pages, rule) if f in data else (EMPTY, NO_KEY)
+        for f in fields.names:
+            got[f], why = _check(data[f], pages, rule) if f in data else (EMPTY, NO_KEY)
             if why:
                 blanked[f] = why
-        out[rule] = Extracted(fields, blanked)
+        out[rule] = Extracted(got, blanked)
     return out
 
 
-def extract(pages: list[str], ask: Ask, rule: str = DEFAULT_RULE) -> Extracted:
-    """LLM을 한 번 불러 8개 필드를 받고, rule안으로 근거를 못 찾는 칸을 비운다."""
+def extract(
+    pages: list[str], ask: Ask, rule: str = DEFAULT_RULE, fields: FieldSet = EIGHT_FIELDS
+) -> Extracted:
+    """LLM을 한 번 불러 fields의 필드를 받고, rule안으로 근거를 못 찾는 칸을 비운다."""
     if rule not in RULES:
         raise ValueError(f"값을 남기는 조건은 {RULES} 중 하나다: {rule!r}")
-    return extract_rules(pages, ask)[rule]
+    return extract_rules(pages, ask, fields)[rule]
