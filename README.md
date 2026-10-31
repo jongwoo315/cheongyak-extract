@@ -88,6 +88,26 @@ uv run python -m cheongyak_extract check-truth    # labels/pdf-values-20.json·d
 코드가 `quote`가 그 쪽에 있는지 확인한다. 칸이 160개가 아니거나 필드·공고가 빠지면 에러를 낸다.
 근거를 못 찾은 칸이 하나라도 있으면 종료 코드 1이다. 같은 칸 비율이 기준에 걸리는지는 리포트를 읽는 사람이 판정한다.
 
+PDF에만 적힌 필드 3개를 수동 정답으로 재려면(청약홈에 요청하지 않는다. `eval-pdf`는 OpenAI를 부른다):
+
+```bash
+uv run python -m cheongyak_extract check-pdf-labels                                  # 정답 150칸을 검사하고 reports/pdf-labels.md를 쓴다
+uv run python -m cheongyak_extract eval-pdf --set tune --out reports/pdf-fields-tune.md   # 다듬는 공고 20건
+uv run python -m cheongyak_extract eval-pdf --set test --out reports/pdf-fields-test.md   # 재는 공고 30건
+```
+
+필드 3개의 뜻은 공고 하나에 값 하나로 정했다
+(설계: [docs/plans/152-1031-design-pdf-only-fields.md](docs/plans/152-1031-design-pdf-only-fields.md) §필드 3개의 뜻).
+
+- 전매제한 기간: 일반공급 당첨자의 전매제한 기간. 1쪽 요약표의 전매제한 칸이 있으면 그 값(`3년`, `6개월`, `없음`)
+- 거주지 우선 비율: 일반공급 물량을 거주 지역별로 나눈 비율, 우선순위가 높은 지역부터(`평택시 30% / 경기도 20% / 기타 50%`). 비율 없이 해당지역 거주자 우선만 적혀 있으면 `해당지역 100%`
+- 신혼부부 소득 기준: 신혼부부 특별공급에서 소득 조건이 가장 낮은 첫 단계(우선공급·1단계)의 월평균소득 대비 %와 맞벌이 %(`100% (맞벌이 120%)`)
+
+`labels/pdf-only-50.json`은 공고 50건(`data/raw/`에서 PDF 텍스트가 있는 149건을 정렬해 `random.Random(152).sample` 50건,
+앞 20건이 다듬는 공고 `tune`, 뒤 30건이 재는 공고 `test`) × 필드 3개 = 150칸이다. 코드가 같은 방법으로 50건을 다시 뽑아 파일의 목록과 대조한다.
+칸마다 `value`·`quote`·`page`·`note`를 적고, 값이 있는 칸은 `quote`가 그 쪽 텍스트에 있는지, `value`의 숫자가 `quote`에 있는지 확인한다.
+정답은 jw가 아니라 구현 루프가 PDF 텍스트를 읽고 적었다. 정답 파일의 첫 커밋 뒤에 세 필드 LLM 추출을 처음 돌렸다.
+
 ## 흐름
 
 ```
@@ -115,7 +135,9 @@ normalize + report (필드별 지표 표)     →  stdout + reports/*.md
 - 청약홈 정답과 PDF 값 대조(#149): 재는 20건 160칸에서 정규화 뒤 같은 칸은 155칸(96.9%), 근거를 PDF에서 못 찾은 칸은 0이다.
   같지 않은 5칸은 표기 차이 3(괄호·쉼표)·다른 값 2(입주예정월 1, 시공사 1)다. PDF 값은 구현 루프가 PDF를 읽고 적었다.
   [reports/truth-check.md](reports/truth-check.md), [labels/pdf-values-20.json](labels/pdf-values-20.json)
-- 이후 티켓: PDF에만 있는 필드 #152
+- PDF에만 있는 필드 3개(#152): 수동 정답 50건 150칸(값이 있는 칸 142, null 칸 8)을 구현 루프가 PDF를 읽고 적었다. 다듬는 20건으로 세 필드 설명을 세 번 고친 뒤 고정하고 재는 30건을 한 번 쟀다.
+  재는 30건에서 정답에 값이 있는 88칸 중 맞음 75(85.2%)·비움 7(8.0%)·다른 값으로 채움 6(6.8%)이다. 필드별 맞음은 전매제한 30/30, 거주지 우선 비율 20/30, 신혼부부 소득 기준 25/28이다.
+  [reports/pdf-labels.md](reports/pdf-labels.md), [reports/pdf-fields-tune.md](reports/pdf-fields-tune.md), [reports/pdf-fields-test.md](reports/pdf-fields-test.md)
 
 ## 테스트
 
