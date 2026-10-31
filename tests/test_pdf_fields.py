@@ -427,3 +427,17 @@ def test_a_malformed_reply_skips_the_notice_instead_of_scoring_null_blank(
     assert [p for p, _ in result.skipped] == ["B"]
     assert {c.pbno for c in result.cells} == {"A"}
     assert "B:" in md.split("건너뛴 공고")[1]
+
+
+def test_a_notice_over_the_context_limit_is_skipped_not_fatal(raw_and_labels, tmp_path):
+    from cheongyak_extract.llm import ContextExceeded
+
+    def ask(prompt):
+        if "공고B" in prompt:
+            raise ContextExceeded("입력이 너무 길다")
+        return fake_ask(prompt)
+
+    result, md = run_eval(raw_and_labels, "test", tmp_path, ask)
+    assert [p for p, _ in result.skipped] == ["B"]
+    assert "컨텍스트 한도 초과" in md.split("건너뛴 공고")[1]
+    assert len(result.cells) == 3
