@@ -70,3 +70,12 @@ def test_tables_default_is_off():
     import inspect
 
     assert inspect.signature(pages).parameters["tables"].default is False
+
+
+def test_has_text_is_false_for_a_pdf_with_only_blank_pages_and_true_otherwise(tmp_path):
+    from cheongyak_extract.pdf_text import has_text
+
+    blank, full = tmp_path / "blank.pdf", tmp_path / "full.pdf"
+    make_pdf(blank, ["", ""])
+    make_pdf(full, ["", "공고문"])
+    assert has_text(full) and not has_text(blank)

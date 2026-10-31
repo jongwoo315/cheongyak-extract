@@ -26,6 +26,12 @@ def pages(path: Path, sort: bool = True, tables: bool = False) -> list[str]:
         return [_page_text(page, sort, tables) for page in doc]
 
 
+def has_text(path: Path) -> bool:
+    """텍스트가 있는 쪽이 하나라도 있다. 첫 쪽을 찾으면 멈춘다(스캔 PDF는 끝까지 읽는다)."""
+    with pymupdf.open(path) as doc:
+        return any(page.get_text().strip() for page in doc)
+
+
 def pdf_problem(path: Path) -> str | None:
     """열리지 않는 이유. 쪽 수 1 이상이고 마지막 쪽 텍스트까지 읽히면 None이다."""
     try:

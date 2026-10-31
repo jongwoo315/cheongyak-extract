@@ -11,6 +11,7 @@ from typing import NamedTuple
 
 from cheongyak_extract.extract import Ask, FieldSet, _blank, _squash, extract, grounded
 from cheongyak_extract.llm import BadResponse, ContextExceeded
+from cheongyak_extract.pdf_text import has_text
 from cheongyak_extract.pdf_text import pages as pdf_pages
 from cheongyak_extract.raw_check import scan
 from cheongyak_extract.report import _table
@@ -119,11 +120,7 @@ class Split(NamedTuple):
 
 def eligible_pbnos(raw_dir: Path) -> list[str]:
     """수집된 공고 중 PDF 텍스트가 있는 것. 텍스트 없는 스캔 PDF(2026000235)는 뺀다."""
-    return [
-        p
-        for p in scan(raw_dir).collected
-        if any(t.strip() for t in pdf_pages(raw_dir / p / "notice.pdf"))
-    ]
+    return [p for p in scan(raw_dir).collected if has_text(raw_dir / p / "notice.pdf")]
 
 
 def pick(pbnos: list[str], n: int = NOTICES, tune: int = TUNE) -> Split:
