@@ -9,7 +9,17 @@ import re
 from pathlib import Path
 from typing import NamedTuple
 
-from cheongyak_extract.extract import Ask, FieldSet, _blank, _squash, extract, grounded
+from cheongyak_extract.extract import (
+    BAD_CELL,
+    BAD_JSON,
+    NO_KEY,
+    Ask,
+    FieldSet,
+    _blank,
+    _squash,
+    extract,
+    grounded,
+)
 from cheongyak_extract.llm import BadResponse, ContextExceeded
 from cheongyak_extract.pdf_text import has_text
 from cheongyak_extract.pdf_text import pages as pdf_pages
@@ -432,6 +442,11 @@ def evaluate_pdf(
             continue
         if usage := getattr(ask, "last_usage", None):
             tokens += usage.input_tokens
+        # 응답을 못 읽은 칸이 정답 null 칸에서 「null에 비움」(맞음)으로 세어지지 않게 공고째 뺀다
+        unreadable = {why for why in got.blanked.values() if why in (BAD_JSON, NO_KEY, BAD_CELL)}
+        if unreadable:
+            skipped.append((pbno, f"LLM 응답을 읽을 수 없음: {', '.join(sorted(unreadable))}"))
+            continue
         for f in PDF_FIELDS:
             x = got.fields[f]
             state = cell_state(f, truth[pbno, f], x.value)

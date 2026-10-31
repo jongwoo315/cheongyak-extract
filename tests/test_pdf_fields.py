@@ -414,3 +414,16 @@ def test_labels_report_counts_filled_null_flagged_and_multi_period_cells(raw_and
     assert f"| {RESIDENT} | 1 | 2 | 0 |" in md
     assert "`,`로 이은 칸 1개" in md
     assert "숫자가 quote에 없음: 6" in md
+
+
+@pytest.mark.parametrize("bad", ["not json", '{"전매제한 기간": 3}'])
+def test_a_malformed_reply_skips_the_notice_instead_of_scoring_null_blank(
+    raw_and_labels, tmp_path, bad
+):
+    # 응답을 못 읽은 것이 정답 null 칸에서 「null에 비움」(맞음)으로 세어지면 점수가 부풀려진다
+    result, md = run_eval(
+        raw_and_labels, "test", tmp_path, lambda p: bad if "공고B" in p else fake_ask(p)
+    )
+    assert [p for p, _ in result.skipped] == ["B"]
+    assert {c.pbno for c in result.cells} == {"A"}
+    assert "B:" in md.split("건너뛴 공고")[1]
