@@ -40,7 +40,7 @@
 | 5. 리포트 3개 | 예 | `reports/pdf-labels.md` · `pdf-fields-tune.md` · `pdf-fields-test.md` 존재 |
 | 6. README에 `eval-pdf` 사용법, 필드 뜻, 결과 한 줄 | 예 | README 수치가 두 리포트와 일치(재는 30건 88칸 중 맞음 75, 비움 7, 다른 값 6) |
 | 7. `uv run pytest` 통과, `ruff check` 통과 | 예 | 505 passed · `All checks passed!` |
-| 7. GitHub Actions pytest green | 판정 불가 | 이전 HEAD에서는 pass. 리뷰 fix push 뒤 다시 확인 |
+| 7. GitHub Actions pytest green | 예 | 리뷰 fix push 뒤 HEAD `ee32d44`에서 `gh pr checks` pytest pass |
 | 7. 테스트가 `data/raw`를 읽지 않고 OpenAI를 부르지 않는다 | 예 | 새 테스트는 `tmp_path`·가짜 ask만 쓴다 |
 | 실패 징후 3. 커밋 순서 (a) 정답 파일 < tune 리포트, (b) 고정 프롬프트 < test 리포트 | 예 | 정답 `f60a43e` < tune `a4a88e0`(고정 프롬프트 포함) < test `c385356` |
 | 실패 징후 1. 재는 30건 90칸의 점수와 필드별 표 | 값만 적는다 | 맞음 75 / 비움 7 / 다른 값 6, null 2칸 중 비움 2 (`reports/pdf-fields-test.md`) |
