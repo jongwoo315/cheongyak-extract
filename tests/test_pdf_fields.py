@@ -441,3 +441,18 @@ def test_a_notice_over_the_context_limit_is_skipped_not_fatal(raw_and_labels, tm
     assert [p for p, _ in result.skipped] == ["B"]
     assert "컨텍스트 한도 초과" in md.split("건너뛴 공고")[1]
     assert len(result.cells) == 3
+
+
+def test_input_tokens_add_up_across_notices(raw_and_labels, tmp_path):
+    from cheongyak_extract.extract import Usage
+
+    class Ask:
+        last_usage = None
+
+        def __call__(self, prompt):
+            self.last_usage = Usage(1000, 10)
+            return fake_ask(prompt)
+
+    # test 집합은 공고 둘(A·B)이다. 마지막 값(1,000)이 아니라 합(2,000)이어야 한다
+    _, md = run_eval(raw_and_labels, "test", tmp_path, Ask())
+    assert "입력 토큰 합계: 2,000" in md
