@@ -456,3 +456,21 @@ def test_input_tokens_add_up_across_notices(raw_and_labels, tmp_path):
     # test 집합은 공고 둘(A·B)이다. 마지막 값(1,000)이 아니라 합(2,000)이어야 한다
     _, md = run_eval(raw_and_labels, "test", tmp_path, Ask())
     assert "입력 토큰 합계: 2,000" in md
+
+
+def test_a_value_with_no_ground_on_the_page_is_blank_and_the_reason_is_reported(
+    raw_and_labels, tmp_path
+):
+    from cheongyak_extract.extract import NEITHER_IN_PAGE
+
+    def ask(prompt):
+        if "공고A" not in prompt:
+            return fake_ask(prompt)
+        body = {f: {"value": None, "evidence": None, "page": None} for f in pf.PDF_FIELDS}
+        body[RESALE] = {"value": "7년", "evidence": "지어낸 문장", "page": 1}
+        return json.dumps(body, ensure_ascii=False)
+
+    result, md = run_eval(raw_and_labels, "test", tmp_path, ask)
+    cell_a = next(c for c in result.cells if (c.pbno, c.field) == ("A", RESALE))
+    assert (cell_a.state, cell_a.value, cell_a.why) == (pf.BLANK, None, NEITHER_IN_PAGE)
+    assert NEITHER_IN_PAGE in md
