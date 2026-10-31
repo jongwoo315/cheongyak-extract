@@ -76,8 +76,16 @@ def test_a_cell_whose_numbers_are_in_its_quote_has_no_problem(field, value, quot
 @pytest.mark.parametrize(
     "field,value,quote,missing",
     [
-        (RESALE, "3년", "전매제한 5년", ["3"]),
+        (RESALE, "3년", "전매제한 5년", ["3년"]),
         (RESALE, "없음", "전매제한 3년", ["없"]),  # 없음에는 숫자 대신 「없」이 quote에 있어야 한다
+        (
+            RESALE,
+            "없음",
+            "전매제한 3년 거주의무 없음",
+            ["없"],
+        ),  # 「없」이 전매와 다른 항목의 것이다
+        (RESALE, "3년", "전매제한 3개월", ["3년"]),  # 숫자는 같아도 단위가 다르다
+        (RESALE, "6개월, 3년", "전매 6개월 또는 3개월", ["3년"]),
         (RESIDENT, "평택시 30% / 경기도 20% / 기타 50%", "평택시 30% 경기도 20%", ["50"]),
         (INCOME, "130%", "소득 기준 1130%", ["130"]),  # 1130의 일부는 130이 아니다
         (INCOME, "100% (맞벌이 120%)", "100% 이하", ["120"]),
@@ -302,6 +310,15 @@ def test_eval_scores_all_five_cell_states(raw_and_labels, tmp_path):
         ("B", INCOME): pf.NULL_BLANK,
     }
     assert result.skipped == [] and result.label_problems == []
+
+
+def test_label_problems_are_counted_only_for_the_chosen_set(raw_and_labels, tmp_path):
+    raw, labels_path, split = raw_and_labels
+    data = json.loads(labels_path.read_text(encoding="utf-8"))
+    data["cells"]["T"][RESALE] = cell("6개월", "전매제한 9개월", 1)  # tune 쪽 문제
+    labels_path.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+    assert run_eval(raw_and_labels, "test", tmp_path)[0].label_problems == []
+    assert [c.pbno for c in run_eval(raw_and_labels, "tune", tmp_path)[0].label_problems] == ["T"]
 
 
 def test_eval_only_asks_the_notices_of_the_chosen_set(raw_and_labels, tmp_path):

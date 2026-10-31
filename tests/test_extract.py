@@ -1,4 +1,6 @@
+import hashlib
 import json
+from pathlib import Path
 
 import pytest
 
@@ -334,6 +336,8 @@ def test_default_field_set_is_the_eight_fields_and_changes_neither_prompt_nor_sc
     assert ex.EIGHT_FIELDS.names == FIELDS
     assert ex.EIGHT_FIELDS.schema == ex.OUTPUT_SCHEMA
     assert build_prompt(PAGES, ex.EIGHT_FIELDS) == build_prompt(PAGES)
+    recorded = (Path(__file__).parent / "fixtures/llm/prompt.sha256").read_text().strip()
+    assert hashlib.sha256(build_prompt([], ex.EIGHT_FIELDS).encode()).hexdigest() == recorded
     assert build_prompt(PAGES).startswith(ex.PROMPT_HEAD)
 
 

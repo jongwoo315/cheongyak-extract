@@ -107,16 +107,20 @@ def _has_number(number: str, text: str) -> bool:
 
 
 def number_problems(field: str, value: str, quote: str) -> list[str]:
-    """value에 쓴 숫자 중 quote에 없는 것. 단위를 바꾼 값(3년 -> 36)도 바꾸기 전 숫자로 본다.
+    """value에 쓴 숫자 중 quote에 없는 것. 정규형으로 바꾸기 전, value에 적은 글자 그대로 본다.
 
-    예외 둘: `해당지역 100%`는 비율이 안 적힌 경우의 약속이라 quote에 100이 없어도 된다.
-    `없음`은 숫자가 없으므로 quote에 「없」이 있는지 본다.
+    전매제한은 숫자와 단위(년·개월)를 짝으로 본다. 예외 둘: `해당지역 100%`는 비율이 안 적힌
+    경우의 약속이라 quote에 100이 없어도 된다. `없음`은 숫자가 없으므로 quote에서 「전매」 뒤
+    숫자 없이 가까이 「없」이 있는지 본다.
     """
     flat, text = _squash(value), _squash(quote)
     if field == RESIDENT and flat == "해당지역100%":
         return []
     if flat == "없음":
-        return [] if "없" in text else ["없"]
+        return [] if re.search(r"전매\D{0,10}없", text) else ["없"]
+    if field == RESALE:  # 숫자만 같고 단위가 다른 오타(3년 대 3개월)를 걸러낸다
+        pairs = dict.fromkeys(f"{n}{u}" for n, u in re.findall(r"(\d+)\s*(년|개월)", value))
+        return [x for x in pairs if x not in text]
     return [n for n in dict.fromkeys(_NUMBER.findall(value)) if not _has_number(n, text)]
 
 
@@ -319,7 +323,7 @@ class Scored(NamedTuple):
 class PdfResult(NamedTuple):
     cells: list[Scored]
     skipped: list[tuple[str, str]]  # (공고, 이유). 잰 칸에서 빠진 공고
-    label_problems: list[LabelCell]  # 정답 검사 둘에 걸린 칸(전체 50건)
+    label_problems: list[LabelCell]  # 정답 검사 둘에 걸린 칸(잰 집합의 공고만)
     input_tokens: int
 
 
@@ -436,7 +440,9 @@ def evaluate_pdf(
                     pbno, f, truth[pbno, f], x.value, x.evidence, x.page, state, got.blanked.get(f)
                 )
             )
-    result = PdfResult(scored, skipped, [c for c in labels if c.problems], tokens)
+    mine = set(data[set_name])  # 다른 집합의 정답 문제로 이 집합의 종료 코드를 바꾸지 않는다
+    flagged = [c for c in labels if c.problems and c.pbno in mine]
+    result = PdfResult(scored, skipped, flagged, tokens)
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(render_eval(set_name, getattr(ask, "model", None), result), encoding="utf-8")
     return result
