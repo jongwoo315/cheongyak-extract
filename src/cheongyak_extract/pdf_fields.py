@@ -120,7 +120,7 @@ def number_problems(field: str, value: str, quote: str) -> list[str]:
         return [] if re.search(r"전매\D{0,10}없", text) else ["없"]
     if field == RESALE:  # 숫자만 같고 단위가 다른 오타(3년 대 3개월)를 걸러낸다
         pairs = dict.fromkeys(f"{n}{u}" for n, u in re.findall(r"(\d+)\s*(년|개월)", value))
-        return [x for x in pairs if x not in text]
+        return [x for x in pairs if not re.search(rf"(?<![\d.]){re.escape(x)}", text)]
     return [n for n in dict.fromkeys(_NUMBER.findall(value)) if not _has_number(n, text)]
 
 
