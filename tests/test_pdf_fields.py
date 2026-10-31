@@ -234,3 +234,164 @@ def test_field_set_has_three_fields_a_matching_schema_and_a_head_that_says_three
 )
 def test_cell_state_compares_normal_forms(truth, got, want):
     assert pf.cell_state(RESALE, truth, got) == want
+
+
+# --- eval-pdf: 가짜 ask와 테스트 안에서 만든 PDF ---
+
+A_TEXT = "공고A\n전매제한 3년\n평택시 30% 기타 70%\n신혼부부 100% 맞벌이 120%\n신혼부부 130%"
+B_TEXT = "공고B\n해당지역 우선 공급"
+T_TEXT = "공고T\n전매제한 6개월"
+
+
+@pytest.fixture
+def raw_and_labels(tmp_path):
+    raw = tmp_path / "raw"
+    for pbno, text in (("T", T_TEXT), ("A", A_TEXT), ("B", B_TEXT)):
+        (raw / pbno).mkdir(parents=True)
+        (raw / pbno / "notice.pdf").write_bytes(make_pdf(text))
+        (raw / pbno / "detail.html").write_text("<html></html>", encoding="utf-8")
+    cells = {
+        "T": {RESALE: cell("6개월", "전매제한 6개월", 1), RESIDENT: null(), INCOME: null()},
+        "A": {
+            RESALE: cell("3년", "전매제한 3년", 1),
+            RESIDENT: cell("평택시 30% / 기타 70%", "평택시 30% 기타 70%", 1),
+            INCOME: cell("100% (맞벌이 120%)", "신혼부부 100% 맞벌이 120%", 1),
+        },
+        "B": {RESALE: null(), RESIDENT: null(), INCOME: null()},
+    }
+    path = tmp_path / "labels.json"
+    path.write_text(
+        json.dumps({"tune": ["T"], "test": ["A", "B"], "cells": cells}, ensure_ascii=False),
+        encoding="utf-8",
+    )
+    return raw, path, pf.Split(["T"], ["A", "B"])
+
+
+def fake_ask(prompt):
+    def reply(**cells):
+        body = {f: {"value": None, "evidence": None, "page": None} for f in pf.PDF_FIELDS}
+        body.update(cells)
+        return json.dumps(body, ensure_ascii=False)
+
+    def c(value, evidence):
+        return {"value": value, "evidence": evidence, "page": 1}
+
+    if "공고A" in prompt:  # 맞음 / 비움 / 다른 값
+        return reply(**{RESALE: c("3년", "전매제한 3년"), INCOME: c("130%", "신혼부부 130%")})
+    if "공고B" in prompt:  # null에 비움(전매제한·소득) / null에 값을 채움(거주지)
+        return reply(**{RESIDENT: c("해당지역 100%", "해당지역 우선 공급")})
+    return reply(**{RESALE: c("6개월", "전매제한 6개월")})
+
+
+def run_eval(raw_and_labels, set_name, tmp_path, ask=fake_ask):
+    raw, labels_path, split = raw_and_labels
+    out = tmp_path / "out.md"
+    result = pf.evaluate_pdf(set_name, raw, labels_path, ask, out, split=split, expected=9)
+    return result, out.read_text(encoding="utf-8")
+
+
+def test_eval_scores_all_five_cell_states(raw_and_labels, tmp_path):
+    result, md = run_eval(raw_and_labels, "test", tmp_path)
+    got = {(c.pbno, c.field): c.state for c in result.cells}
+    assert got == {
+        ("A", RESALE): pf.RIGHT,
+        ("A", RESIDENT): pf.BLANK,
+        ("A", INCOME): pf.OTHER,
+        ("B", RESALE): pf.NULL_BLANK,
+        ("B", RESIDENT): pf.NULL_FILLED,
+        ("B", INCOME): pf.NULL_BLANK,
+    }
+    assert result.skipped == [] and result.label_problems == []
+
+
+def test_eval_only_asks_the_notices_of_the_chosen_set(raw_and_labels, tmp_path):
+    asked = []
+    run_eval(raw_and_labels, "tune", tmp_path, lambda p: asked.append(p) or fake_ask(p))
+    assert len(asked) == 1 and "공고T" in asked[0]
+    assert "3개 필드" in asked[0]  # 세 필드 프롬프트다
+
+
+def test_report_top_has_counts_with_percent_then_per_field_then_every_wrong_cell(
+    raw_and_labels, tmp_path
+):
+    _, md = run_eval(raw_and_labels, "test", tmp_path)
+    top = md.split("필드별")[0]
+    assert "정답에 값이 있는 칸 3개" in top
+    assert "| 맞음 | 1 (33.3%) |" in top
+    assert "| 비움 | 1 (33.3%) |" in top
+    assert "| 다른 값으로 채움 | 1 (33.3%) |" in top
+    assert "정답이 null인 칸 3개" in top
+    assert "| null에 비움 | 2 (66.7%) |" in top
+    assert "| null에 값을 채움 | 1 (33.3%) |" in top
+    per_field = md.split("필드별")[1]
+    assert f"| {RESALE} | 1 | 1 | 0 | 0 | 1 | 1 | 0 |" in per_field
+    assert f"| {INCOME} | 1 | 0 | 0 | 1 | 1 | 1 | 0 |" in per_field
+    wrong = md.split("맞지 않은 칸")[1]
+    assert wrong.count("\n| A |") == 2 and wrong.count("\n| B |") == 1
+    assert "| A | 신혼부부 소득 기준 | 100% (맞벌이 120%) | 130% | 신혼부부 130% | 1 |" in wrong
+    assert "| A | 거주지 우선 비율 | 평택시 30% / 기타 70% | — | — | — |" in wrong
+    assert "| B | 거주지 우선 비율 | — | 해당지역 100% | 해당지역 우선 공급 | 1 |" in wrong
+    assert "| 전매제한 기간 |" not in wrong  # 맞은 칸과 null에 비운 칸은 목록에 없다
+
+
+def test_report_sums_input_tokens_and_lists_skipped_notices(raw_and_labels, tmp_path):
+    from cheongyak_extract.extract import Usage
+    from cheongyak_extract.llm import BadResponse
+
+    class Ask:
+        last_usage = None
+
+        def __call__(self, prompt):
+            if "공고B" in prompt:
+                raise BadResponse("응답 본문이 비어 있음")
+            self.last_usage = Usage(1000, 10)
+            return fake_ask(prompt)
+
+    result, md = run_eval(raw_and_labels, "test", tmp_path, Ask())
+    assert "입력 토큰 합계: 1,000" in md
+    assert [p for p, _ in result.skipped] == ["B"]
+    assert "B" in md.split("건너뛴 공고")[1]
+    assert len(result.cells) == 3  # A의 세 칸만 잰다
+
+
+def test_eval_reports_label_problems_but_still_scores(raw_and_labels, tmp_path):
+    raw, labels_path, split = raw_and_labels
+    data = json.loads(labels_path.read_text(encoding="utf-8"))
+    data["cells"]["A"][RESALE] = cell("3년", "전매제한 5년", 1)
+    labels_path.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+    result, md = run_eval(raw_and_labels, "test", tmp_path)
+    assert [(c.pbno, c.field) for c in result.label_problems] == [("A", RESALE)]
+    assert "정답 검사에 걸린 칸 1개" in md
+
+
+def test_eval_refuses_a_set_name_that_is_not_tune_or_test(raw_and_labels, tmp_path):
+    with pytest.raises(ValueError, match="tune"):
+        run_eval(raw_and_labels, "all", tmp_path)
+
+
+def test_eval_raises_before_asking_when_labels_are_broken(raw_and_labels, tmp_path):
+    raw, labels_path, split = raw_and_labels
+    data = json.loads(labels_path.read_text(encoding="utf-8"))
+    del data["cells"]["B"]
+    labels_path.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+
+    def never(prompt):
+        raise AssertionError("정답이 깨졌으면 LLM을 부르지 않는다")
+
+    with pytest.raises(ValueError, match="B"):
+        run_eval(raw_and_labels, "test", tmp_path, never)
+
+
+def test_labels_report_counts_filled_null_flagged_and_multi_period_cells(raw_and_labels, tmp_path):
+    raw, labels_path, split = raw_and_labels
+    data = json.loads(labels_path.read_text(encoding="utf-8"))
+    data["cells"]["A"][RESALE] = cell("6개월, 3년", "전매제한 3년", 1)  # 6이 quote에 없다
+    labels_path.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+    out = tmp_path / "labels.md"
+    cells = pf.check_pdf_labels(raw, labels_path, out, split=split, expected=9)
+    md = out.read_text(encoding="utf-8")
+    assert len([c for c in cells if c.problems]) == 1
+    assert f"| {RESALE} | 2 | 1 | 1 |" in md  # 값 있는 칸 2(T·A), null 칸 1(B), 걸린 칸 1
+    assert f"| {RESIDENT} | 1 | 2 | 0 |" in md
+    assert "`,`로 이은 칸 1개" in md
+    assert "숫자가 quote에 없음: 6" in md

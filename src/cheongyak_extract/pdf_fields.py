@@ -3,14 +3,17 @@
 필드의 뜻과 정규형은 docs/plans/152-1031-design-pdf-only-fields.md §필드 3개의 뜻.
 """
 
+import json
 import random
 import re
 from pathlib import Path
 from typing import NamedTuple
 
-from cheongyak_extract.extract import FieldSet, _blank, _squash, grounded
+from cheongyak_extract.extract import Ask, FieldSet, _blank, _squash, extract, grounded
+from cheongyak_extract.llm import BadResponse, ContextExceeded
 from cheongyak_extract.pdf_text import pages as pdf_pages
 from cheongyak_extract.raw_check import scan
+from cheongyak_extract.report import _table
 
 RESALE, RESIDENT, INCOME = PDF_FIELDS = ("전매제한 기간", "거주지 우선 비율", "신혼부부 소득 기준")
 
@@ -238,3 +241,198 @@ def cell_state(field: str, truth: str | None, got: str | None) -> str:
         return BLANK
     want = normal_form(field, truth)
     return RIGHT if want is not None and normal_form(field, got) == want else OTHER
+
+
+def _load(
+    raw_dir: Path, labels_path: Path, split: Split | None, expected: int
+) -> tuple[dict, Split, dict[str, list[str]], list[LabelCell]]:
+    data = json.loads(labels_path.read_text(encoding="utf-8"))
+    split = split or pick(eligible_pbnos(raw_dir))
+    texts = {p: pdf_pages(raw_dir / p / "notice.pdf") for p in [*split.tune, *split.test]}
+    return data, split, texts, check_labels(data, split, texts, expected)
+
+
+def _pct(n: int, total: int) -> str:
+    return f"{n} ({n / total:.1%})" if total else f"{n} (—)"
+
+
+def _problem_table(flagged: list[LabelCell]) -> str:
+    return _table(
+        ("공고", "필드", "쪽", "이유", "quote"),
+        [(c.pbno, c.field, c.page, "; ".join(c.problems), c.quote) for c in flagged],
+    )
+
+
+def render_labels(cells: list[LabelCell]) -> str:
+    flagged = [c for c in cells if c.problems]
+    filled = [c for c in cells if c.value is not None]
+    md = "# 수동 정답 요약 (PDF에만 있는 필드 3개)\n\n"
+    md += f"공고 {len({c.pbno for c in cells})}건 · 칸 {len(cells)}개. "
+    md += "정답 파일은 `labels/pdf-only-50.json`이다. 청약홈과 OpenAI에 요청하지 않았다.\n\n"
+    md += f"- 값이 있는 칸 {len(filled)}개, null 칸 {len(cells) - len(filled)}개\n"
+    md += f"- 정답 검사 둘(quote가 그 쪽에 있다, 숫자가 quote에 있다)에 걸린 칸 {len(flagged)}개\n"
+    multi = sum(c.field == RESALE and "," in (c.value or "") for c in cells)
+    md += f"- 주택형마다 전매제한이 달라 `,`로 이은 칸 {multi}개\n\n"
+    rows = []
+    for f in PDF_FIELDS:
+        mine = [c for c in cells if c.field == f]
+        got = sum(c.value is not None for c in mine)
+        rows.append((f, got, len(mine) - got, sum(bool(c.problems) for c in mine)))
+    md += _table(("필드", "값 있는 칸", "null 칸", "검사에 걸린 칸"), rows)
+    md += f"\n검사에 걸린 칸 {len(flagged)}개:\n\n"
+    md += _problem_table(flagged) if flagged else "없음\n"
+    nulls = [c for c in cells if c.value is None]
+    md += f"\nnull 칸 {len(nulls)}개의 note (찾아본 쪽):\n\n"
+    md += _table(("공고", "필드", "note"), [(c.pbno, c.field, c.note) for c in nulls])
+    return md
+
+
+def check_pdf_labels(
+    raw_dir: Path,
+    labels_path: Path,
+    out: Path,
+    split: Split | None = None,
+    expected: int = CELLS,
+) -> list[LabelCell]:
+    """정답 파일을 검사하고 요약을 out에 쓴다. 구조가 틀리면 ValueError. LLM을 부르지 않는다."""
+    *_, cells = _load(raw_dir, labels_path, split, expected)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(render_labels(cells), encoding="utf-8")
+    return cells
+
+
+class Scored(NamedTuple):
+    pbno: str
+    field: str
+    truth: str | None
+    value: str | None  # LLM이 남긴 값
+    evidence: str | None
+    page: int | None
+    state: str
+    why: str | None  # 비운 이유(LLM이 비운 칸도 들어 있다)
+
+
+class PdfResult(NamedTuple):
+    cells: list[Scored]
+    skipped: list[tuple[str, str]]  # (공고, 이유). 잰 칸에서 빠진 공고
+    label_problems: list[LabelCell]  # 정답 검사 둘에 걸린 칸(전체 50건)
+    input_tokens: int
+
+
+def _count_table(states: tuple[str, ...], cells: list[Scored]) -> str:
+    return _table(
+        ("상태", "칸 수 (비율)"),
+        [(s, _pct(sum(c.state == s for c in cells), len(cells))) for s in states],
+    )
+
+
+def _n(cells: list[Scored], *states: str) -> int:
+    return sum(c.state in states for c in cells)
+
+
+def render_eval(set_name: str, model: str | None, result: PdfResult) -> str:
+    cells = result.cells
+    filled = [c for c in cells if c.truth is not None]
+    nulls = [c for c in cells if c.truth is None]
+    notices = list(dict.fromkeys(c.pbno for c in cells))
+    kind = "다듬는" if set_name == "tune" else "재는"
+    md = f"# 세 필드 LLM 추출 — {kind} 공고 ({set_name})\n\n"
+    md += f"공고 {len(notices)}건 · 칸 {len(cells)}개"
+    md += f" · 모델 {model}\n\n" if model else "\n\n"
+    md += f"정답에 값이 있는 칸 {len(filled)}개 중:\n\n"
+    md += _count_table((RIGHT, BLANK, OTHER), filled)
+    md += f"\n정답이 null인 칸 {len(nulls)}개 중:\n\n"
+    md += _count_table((NULL_BLANK, NULL_FILLED), nulls)
+    rows = []
+    for f in PDF_FIELDS:
+        mine = [c for c in cells if c.field == f]
+        rows.append(
+            (
+                f,
+                _n(mine, RIGHT, BLANK, OTHER),
+                _n(mine, RIGHT),
+                _n(mine, BLANK),
+                _n(mine, OTHER),
+                _n(mine, NULL_BLANK, NULL_FILLED),
+                _n(mine, NULL_BLANK),
+                _n(mine, NULL_FILLED),
+            )
+        )
+    md += "\n필드별:\n\n" + _table(
+        (
+            "필드",
+            "값 있는 칸",
+            "맞음",
+            "비움",
+            "다른 값",
+            "null 칸",
+            "null에 비움",
+            "null에 값을 채움",
+        ),
+        rows,
+    )
+    wrong = [c for c in cells if c.state not in (RIGHT, NULL_BLANK)]
+    md += f"\n맞지 않은 칸 {len(wrong)}개:\n\n"
+    md += (
+        _table(
+            ("공고", "필드", "정답 값", "LLM 값", "LLM 근거", "쪽", "상태", "비운 이유"),
+            [
+                (c.pbno, c.field, c.truth, c.value, c.evidence, c.page, c.state, c.why)
+                for c in wrong
+            ],
+        )
+        if wrong
+        else "없음\n"
+    )
+    md += f"\n입력 토큰 합계: {result.input_tokens:,}\n"
+    if result.label_problems:
+        md += f"\n정답 검사에 걸린 칸 {len(result.label_problems)}개:\n\n"
+        md += _problem_table(result.label_problems)
+    if result.skipped:
+        md += "\n건너뛴 공고:\n\n" + "".join(f"- {p}: {why}\n" for p, why in result.skipped)
+    return md
+
+
+def evaluate_pdf(
+    set_name: str,
+    raw_dir: Path,
+    labels_path: Path,
+    ask: Ask,
+    out: Path,
+    split: Split | None = None,
+    expected: int = CELLS,
+) -> PdfResult:
+    """정답 파일과 data/raw/만 읽고 set_name(tune·test)의 공고를 세 필드로 추출해 점수를 쓴다.
+
+    청약홈에 요청하지 않는다. 정답 파일 구조가 틀리면 LLM을 부르기 전에 ValueError다.
+    """
+    if set_name not in ("tune", "test"):
+        raise ValueError(f"집합은 tune 또는 test다: {set_name!r}")
+    data, _, texts, labels = _load(raw_dir, labels_path, split, expected)
+    truth = {(c.pbno, c.field): c.value for c in labels}
+    scored: list[Scored] = []
+    skipped: list[tuple[str, str]] = []
+    tokens = 0
+    for pbno in data[set_name]:
+        try:
+            got = extract(texts[pbno], ask, fields=PDF_FIELD_SET)
+        except ContextExceeded as e:
+            skipped.append((pbno, f"컨텍스트 한도 초과: {e}"))
+            continue
+        except BadResponse as e:  # 인증·한도 오류는 잡지 않고 멈춘다
+            skipped.append((pbno, f"LLM 응답을 쓸 수 없음: {e}"))
+            continue
+        if usage := getattr(ask, "last_usage", None):
+            tokens += usage.input_tokens
+        for f in PDF_FIELDS:
+            x = got.fields[f]
+            state = cell_state(f, truth[pbno, f], x.value)
+            scored.append(
+                Scored(
+                    pbno, f, truth[pbno, f], x.value, x.evidence, x.page, state, got.blanked.get(f)
+                )
+            )
+    result = PdfResult(scored, skipped, [c for c in labels if c.problems], tokens)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(render_eval(set_name, getattr(ask, "model", None), result), encoding="utf-8")
+    return result
