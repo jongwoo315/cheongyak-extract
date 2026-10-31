@@ -45,3 +45,8 @@
 | 실패 징후 3. 커밋 순서 (a) 정답 파일 < tune 리포트, (b) 고정 프롬프트 < test 리포트 | 예 | 정답 `f60a43e` < tune `a4a88e0`(고정 프롬프트 포함) < test `c385356` |
 | 실패 징후 1. 재는 30건 90칸의 점수와 필드별 표 | 값만 적는다 | 맞음 75 / 비움 7 / 다른 값 6, null 2칸 중 비움 2 (`reports/pdf-fields-test.md`) |
 | 이번에 안 하는 것(8필드 프롬프트·`normalize.py`·기존 리포트 수정, `run` 흐름 변경) | 예 | `git diff main...HEAD --stat`에 해당 파일 없음. `__main__.py`는 하위 명령만 추가 |
+
+## 게시 기록
+
+- 인라인 스레드 4건 중 지적 6은 `src/cheongyak_extract/extract.py:239`가 이 PR diff 밖이라 422(`line could not be resolved`)로 실패했다. 같은 내용을 호출 지점 `src/cheongyak_extract/pdf_fields.py:436`에 달았다.
+- 테스트·ruff는 fix 5건 뒤 다시 돌려 505 passed, `All checks passed!`를 확인했다.
