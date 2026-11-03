@@ -11,6 +11,9 @@ from cheongyak_extract.truth_check import (
     cause,
     check_cells,
     llm_values,
+    load_judge,
+    merge_judge,
+    pick_cells,
     render,
     reread,
     run_check,
@@ -286,3 +289,111 @@ def test_run_check_raises_when_the_wrong_cell_table_loses_a_row(tmp_path):
     )
     with pytest.raises(ValueError, match="틀리게 채운 칸"):
         run_check([PB], raw, labels_path, md, tmp_path / "x.md", expected=8)
+
+
+# ---- #153 Task 1: 판정할 칸 고르기와 판정 파일 ----
+
+
+def judge_cell(jw=None, jw_note=None, **over):
+    base = {
+        "pbno": PB,
+        "field": "공급규모",
+        "html": "100세대",
+        "pdf": "90",
+        "quote": "공급규모 : 100세대",
+        "page": 2,
+        "llm": "100세대",
+        "jw": jw,
+        "jw_note": jw_note,
+    }
+    return {**base, **over}
+
+
+def test_pick_cells_keeps_only_cells_where_a_value_differs():
+    # 공급규모: HTML 100세대 · PDF 90 · LLM(표에 없음 = HTML 값) → PDF만 다르다
+    # 시공사: 정규화 뒤 셋 다 같다 → 고르지 않는다
+    # 입주예정월: HTML·PDF는 같고 LLM만 다르다 → 고른다
+    cells = run(labels(공급규모=cell("90", "공급규모 : 100세대", 2)))
+    got = pick_cells(cells, {(PB, "입주예정월"): "2026.11"})
+    assert [(p["field"], p["html"], p["pdf"], p["llm"]) for p in got] == [
+        ("공급규모", "100세대", "90", "100세대"),
+        ("입주예정월", "2026.10", "2026년 10월", "2026.11"),
+    ]
+    assert all(p["jw"] is None and p["jw_note"] is None for p in got)
+    assert set(got[0]) == {"pbno", "field", "html", "pdf", "quote", "page", "llm", "jw", "jw_note"}
+
+
+def test_pick_cells_treats_a_missing_llm_row_as_the_html_value():
+    cells = run(labels())
+    assert pick_cells(cells, {}) == []
+
+
+def test_pick_cells_normalizes_before_comparing():
+    # LLM이 표기만 다르게 채운 칸(2026년 10월)은 같은 칸이다
+    cells = run(labels())
+    assert pick_cells(cells, {(PB, "입주예정월"): "2026년 10월"}) == []
+
+
+def test_pick_cells_picks_a_cell_the_llm_left_empty():
+    cells = run(labels())
+    got = pick_cells(cells, {(PB, "시공사"): None})
+    assert [(p["field"], p["llm"]) for p in got] == [("시공사", None)]
+
+
+def write_json(tmp_path, data):
+    path = tmp_path / "source-judge.json"
+    path.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+    return path
+
+
+def test_load_judge_accepts_the_four_values_and_null(tmp_path):
+    rows = [
+        judge_cell(jw=v, field=f"f{i}")
+        for i, v in enumerate(["HTML", "PDF", "둘 다", "둘 다 아님", None])
+    ]
+    assert load_judge(write_json(tmp_path, rows)) == rows
+
+
+@pytest.mark.parametrize("bad", ["html", "맞음", "", 1, True])
+def test_load_judge_rejects_other_jw_values(tmp_path, bad):
+    with pytest.raises(ValueError, match="jw"):
+        load_judge(write_json(tmp_path, [judge_cell(jw=bad)]))
+
+
+@pytest.mark.parametrize(
+    "bad",
+    [
+        {"pbno": PB},  # 키가 모자라다
+        {**judge_cell(), "extra": 1},  # 키가 남는다
+        judge_cell(jw_note=3),  # 메모는 문자열이거나 null
+        judge_cell(page="2"),
+    ],
+)
+def test_load_judge_rejects_a_malformed_row(tmp_path, bad):
+    with pytest.raises(ValueError):
+        load_judge(write_json(tmp_path, [bad]))
+
+
+def test_load_judge_rejects_a_non_list(tmp_path):
+    with pytest.raises(ValueError, match="목록"):
+        load_judge(write_json(tmp_path, {"cells": []}))
+
+
+def test_merge_judge_without_a_file_returns_the_picked_cells():
+    picked = [judge_cell()]
+    assert merge_judge(picked, None) == picked
+
+
+def test_merge_judge_keeps_jw_and_note_from_the_file_and_never_overwrites_them():
+    picked = [judge_cell()]
+    filled = [judge_cell(jw="PDF", jw_note="PDF 줄이 맞다", pdf="낡은 값")]
+    got = merge_judge(picked, filled)
+    assert (got[0]["jw"], got[0]["jw_note"]) == ("PDF", "PDF 줄이 맞다")
+    assert got[0]["pdf"] == "90"  # 자료 칸은 이번에 읽은 값이다
+
+
+def test_merge_judge_raises_when_the_cells_differ_from_the_file():
+    with pytest.raises(ValueError, match="공급규모"):
+        merge_judge([judge_cell(field="시공사")], [judge_cell(jw="HTML")])
+    with pytest.raises(ValueError, match="시공사"):
+        merge_judge([judge_cell(), judge_cell(field="시공사")], [judge_cell()])

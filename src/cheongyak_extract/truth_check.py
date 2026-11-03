@@ -148,6 +148,87 @@ def reread(cells: list[Cell], extracted: dict[tuple[str, str], str | None]) -> l
     return out
 
 
+# ---- #153: 어느 쪽이 맞는지 jw가 판정할 칸 ----
+
+JUDGES = ("HTML", "PDF", "둘 다", "둘 다 아님")  # jw 칸이 받는 값. 비어 있으면 null
+PENDING = "판정 전"
+_JUDGE_KEYS = {"pbno", "field", "html", "pdf", "quote", "page", "llm", "jw", "jw_note"}
+
+
+def pick_cells(cells: list[Cell], llm: dict[tuple[str, str], str | None]) -> list[dict]:
+    """HTML 값·PDF 값·LLM 값이 정규화 뒤 하나라도 다른 칸을 판정 파일 꼴로 낸다.
+
+    llm은 틀리게 채운 칸 표의 추출값이다. 표에 없는 칸은 HTML 값과 같다고 본다.
+    """
+    out = []
+    for c in cells:
+        value = llm.get((c.pbno, c.field), c.html)
+        if len({normalize(c.field, v) for v in (c.html, c.pdf, value)}) == 1:
+            continue
+        out.append(
+            {
+                "pbno": c.pbno,
+                "field": c.field,
+                "html": c.html,
+                "pdf": c.pdf,
+                "quote": c.quote,
+                "page": c.page,
+                "llm": value,
+                "jw": None,
+                "jw_note": None,
+            }
+        )
+    return out
+
+
+def _check_judge_row(i: int, row: object) -> dict:
+    where = f"판정 파일 {i + 1}번째 칸"
+    if not isinstance(row, dict) or set(row) != _JUDGE_KEYS:
+        raise ValueError(f"{where}: {sorted(_JUDGE_KEYS)} 키를 모두 가진 객체여야 한다")
+    where = f"{row['pbno']} {row['field']}"
+    if not all(isinstance(row[k], str) for k in ("pbno", "field")):
+        raise ValueError(f"{where}: pbno·field는 문자열이어야 한다")
+    for k in ("html", "pdf", "quote", "llm", "jw_note"):
+        if row[k] is not None and not isinstance(row[k], str):
+            raise ValueError(f"{where}: {k}는 문자열이거나 null이어야 한다")
+    page = row["page"]
+    if page is not None and (not isinstance(page, int) or isinstance(page, bool) or page < 1):
+        raise ValueError(f"{where}: page는 1 이상의 정수이거나 null이어야 한다")
+    jw = row["jw"]
+    if jw is not None and not (isinstance(jw, str) and jw in JUDGES):
+        raise ValueError(
+            f"{where}: jw는 {' / '.join(JUDGES)} 중 하나이거나 null이어야 한다: {jw!r}"
+        )
+    return row
+
+
+def load_judge(path: Path) -> list[dict]:
+    """판정 파일을 읽고 칸마다 형식과 jw 값을 검사한다."""
+    raw = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(raw, list):
+        raise ValueError("판정 파일의 맨 위는 칸 목록이어야 한다")
+    return [_check_judge_row(i, row) for i, row in enumerate(raw)]
+
+
+def _key(r: dict) -> tuple[str, str]:
+    return r["pbno"], r["field"]
+
+
+def merge_judge(picked: list[dict], filed: list[dict] | None) -> list[dict]:
+    """이번에 고른 칸에 파일에 적힌 jw·jw_note를 얹는다. 파일이 없으면 고른 칸 그대로다.
+
+    jw가 채운 칸을 덮어쓰지 않는다. 고른 칸과 파일의 칸이 다르면 말없이 버리지 않고 에러를 낸다.
+    """
+    if filed is None:
+        return picked
+    now, before = {_key(r) for r in picked}, {_key(r) for r in filed}
+    if now != before:
+        diff = sorted(f"{p} {f}" for p, f in now ^ before)
+        raise ValueError(f"판정 파일의 칸이 이번에 고른 칸과 다르다: {diff}")
+    saved = {_key(r): r for r in filed}
+    return [{**r, "jw": saved[_key(r)]["jw"], "jw_note": saved[_key(r)]["jw_note"]} for r in picked]
+
+
 def _pct(n: int, total: int) -> str:
     return f"{n}/{total} ({n / total:.1%})" if total else f"{n}/{total} (—)"
 
