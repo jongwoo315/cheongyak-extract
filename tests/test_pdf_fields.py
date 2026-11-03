@@ -595,6 +595,22 @@ def test_a_malformed_reply_skips_the_notice_instead_of_scoring_null_blank(
     assert "B:" in md.split("건너뛴 공고")[1]
 
 
+@pytest.mark.parametrize("pbno", ["A", "K"])  # A는 전체 텍스트, K는 묶음으로 거주지를 묻는다
+@pytest.mark.parametrize("which", ["다음 1개 필드", "다음 2개 필드"])
+def test_a_malformed_reply_from_only_one_of_the_two_calls_still_skips_the_notice(
+    raw_and_labels, tmp_path, pbno, which
+):
+    # 두 호출 중 하나만 깨져도 그 호출의 빈 칸이 다른 호출 결과와 합쳐져 맞음으로 세어지면 안 된다
+    def ask(prompt):
+        if which in prompt and (f"공고{pbno}" in prompt or (pbno == "K" and "K단지" in prompt)):
+            return "not json"
+        return fake_ask(prompt)
+
+    result, _ = run_eval(raw_and_labels, "tune", tmp_path, ask)
+    assert [p for p, _ in result.skipped] == [pbno]
+    assert pbno not in {c.pbno for c in result.cells}
+
+
 def test_a_notice_over_the_context_limit_is_skipped_not_fatal(raw_and_labels, tmp_path):
     from cheongyak_extract.llm import ContextExceeded
 
