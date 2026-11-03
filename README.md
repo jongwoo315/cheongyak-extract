@@ -99,7 +99,7 @@ uv run python -m cheongyak_extract judge-source   # 판정 파일이 없으면 �
 HTML 값·PDF 값(`labels/pdf-values-20.json`)·LLM 값이 정규화 뒤 하나라도 다른 칸을 `labels/source-judge.json`에 넣는다(재는 20건 160칸 중 7칸).
 칸마다 HTML 값·PDF 값·근거 줄·쪽·LLM 값이 있고 `jw`·`jw_note`는 null이다. jw가 칸을 보고 `jw`에 `HTML`(HTML 쪽이 맞다)·`PDF`(PDF 쪽이 맞다)·`둘 다`(같은 뜻이다)·`둘 다 아님` 중 하나를 적고,
 필요하면 `jw_note`에 한 줄을 적는다. 다 채운 뒤 같은 명령을 다시 돌리면 방식별로 맞는 값을 가진 칸 수가 나온다.
-`jw` 칸은 코드가 채우지 않고, 다시 돌려도 덮어쓰지 않는다. 다른 값을 적으면 에러다. 근거 줄을 그 쪽에서 못 찾은 칸이 있으면 종료 코드 1이다.
+`jw` 칸은 코드가 채우지 않고, 다시 돌려도 덮어쓰지 않는다. `jw`에 위 네 값 밖의 값을 적거나, 칸 목록·HTML 값·PDF 값·근거 줄·쪽·LLM 값이 이번에 읽은 것과 다르거나, 같은 칸이 두 번 있으면 에러다. 근거 줄을 그 쪽에서 못 찾은 칸이 있으면 종료 코드 1이다.
 세 결정(정규식 대 LLM, HTML 대 PDF, PDF에만 있는 필드)의 사실은 [docs/decision-source.md](docs/decision-source.md)에 있고, 고른 방식과 이유는 jw가 쓴다.
 
 PDF에만 적힌 필드 3개를 수동 정답으로 재려면(청약홈에 요청하지 않는다. `eval-pdf`는 OpenAI를 부른다):
