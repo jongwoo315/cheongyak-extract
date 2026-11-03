@@ -415,13 +415,18 @@ def cell_state(field: str, truth: str | None, got: str | None) -> str:
 
 
 def _load(
-    raw_dir: Path, labels_path: Path, set_name: str, split: Split | None, expected: int | None
+    raw_dir: Path,
+    labels_path: Path,
+    set_name: str,
+    split: Split | None,
+    expected: int | None,
+    eligible: list[str] | None = None,
 ) -> tuple[dict, Split, dict[str, list[str]], list[LabelCell]]:
     """tune는 기존 50건 세 필드 파일, test는 새 30건 거주지 파일이다."""
     tune = set_name == "tune"
     data = json.loads(labels_path.read_text(encoding="utf-8"))
     if split is None:
-        eligible = eligible_pbnos(raw_dir)
+        eligible = eligible if eligible is not None else eligible_pbnos(raw_dir)
         first = pick(eligible)
         split = first if tune else pick_resident(eligible, [*first.tune, *first.test])
     texts = {p: pdf_pages(raw_dir / p / "notice.pdf") for p in [*split.tune, *split.test]}
@@ -526,12 +531,13 @@ def check_pdf_labels(
     test_expected: int | None = None,
 ) -> list[LabelCell]:
     """정답 파일 둘을 검사하고 요약을 out에 쓴다. 구조가 틀리면 ValueError. LLM을 부르지 않는다."""
-    *_, tune_cells = _load(raw_dir, tune_path, "tune", tune_split, tune_expected)
-    _, _, test_texts, test_cells = _load(raw_dir, test_path, "test", test_split, test_expected)
-    tune_texts = {
-        p: pdf_pages(raw_dir / p / "notice.pdf") for p in dict.fromkeys(c.pbno for c in tune_cells)
-    }
     eligible = eligible_pbnos(raw_dir)
+    _, _, tune_texts, tune_cells = _load(
+        raw_dir, tune_path, "tune", tune_split, tune_expected, eligible
+    )
+    _, _, test_texts, test_cells = _load(
+        raw_dir, test_path, "test", test_split, test_expected, eligible
+    )
     with_block = sum(
         resident_block(pdf_pages(raw_dir / p / "notice.pdf")) is not None for p in eligible
     )
