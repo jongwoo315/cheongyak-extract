@@ -13,10 +13,13 @@ from cheongyak_extract.truth_check import (
     llm_values,
     load_judge,
     merge_judge,
+    missing_material,
     pick_cells,
     render,
+    render_judge,
     reread,
     run_check,
+    ungrounded_judge,
 )
 from pdfs import make_pdf
 
@@ -397,3 +400,114 @@ def test_merge_judge_raises_when_the_cells_differ_from_the_file():
         merge_judge([judge_cell(field="시공사")], [judge_cell(jw="HTML")])
     with pytest.raises(ValueError, match="시공사"):
         merge_judge([judge_cell(), judge_cell(field="시공사")], [judge_cell()])
+
+
+# ---- #153 Task 2: 근거 줄 검사와 리포트 ----
+
+
+def test_ungrounded_judge_finds_a_quote_missing_from_its_page():
+    ok = judge_cell(quote="공급규모 : 100세대", page=2)
+    wrong_page = judge_cell(field="시공사", quote="공급규모 : 100세대", page=1)
+    out_of_range = judge_cell(field="계약일", quote="공급규모 : 100세대", page=9)
+    got = ungrounded_judge([ok, wrong_page, out_of_range], PAGES)
+    assert [r["field"] for r in got] == ["시공사", "계약일"]
+
+
+def test_ungrounded_judge_does_not_flag_a_cell_without_a_quote():
+    # 근거가 아예 없는 칸은 「못 찾은 칸」이 아니라 「재료가 빠진 칸」이다
+    assert ungrounded_judge([judge_cell(pdf=None, quote=None, page=None)], PAGES) == []
+
+
+def test_missing_material_counts_any_empty_value_quote_page_or_llm():
+    assert not missing_material(judge_cell())
+    for k in ("html", "pdf", "quote", "page", "llm"):
+        assert missing_material(judge_cell(**{k: None})), k
+
+
+def rows3():
+    return [
+        judge_cell(field="공급규모"),
+        judge_cell(field="시공사", html="A건설", pdf="B건설", llm="A건설", quote="q", page=3),
+        judge_cell(
+            field="시공사", pbno="2026000002", html="C", pdf="D", llm="D", quote="q", page=3
+        ),
+    ]
+
+
+def test_render_judge_top_states_the_assumption_and_the_same_cell_count():
+    md = render_judge(rows3(), 160, [])
+    head = md.split("\n\n## ")[0]
+    assert "세 값이 모두 같은 칸은 두 방식 모두 맞다고 본다" in head
+    assert "같은 칸 157/160" in head  # 가정 문장 옆에 센다
+    assert "판정할 칸 3/160" in md
+    assert "청약홈과 OpenAI에 요청하지 않았다" in md
+
+
+def test_render_judge_lists_each_cell_with_values_page_llm_and_jw():
+    rows = rows3()
+    rows[1]["jw"] = "PDF"
+    md = render_judge(rows, 160, [])
+    assert "| 2026000001 | 시공사 | A건설 | B건설 | 3 | A건설 | PDF |" in md
+    assert "| 2026000001 | 공급규모 | 100세대 | 90 | 2 | 100세대 | 판정 전 |" in md
+
+
+def test_render_judge_before_any_judgment_says_so_and_writes_no_totals():
+    md = render_judge(rows3(), 160, [])
+    assert "jw 판정 전" in md.split("\n\n## ")[0]
+    assert "방식별로 맞는 값을 가진 칸" not in md
+    assert "| 판정 전 | 3 |" in md
+    assert "| HTML | 0 |" in md and "| 둘 다 아님 | 0 |" in md
+
+
+def test_render_judge_partly_filled_is_still_before_judgment():
+    rows = rows3()
+    rows[0]["jw"] = "HTML"
+    md = render_judge(rows, 160, [])
+    assert "jw 판정 전" in md and "방식별로 맞는 값을 가진 칸" not in md
+    assert "| HTML | 1 |" in md and "| 판정 전 | 2 |" in md
+
+
+def test_render_judge_after_judgment_counts_cells_per_method():
+    rows = rows3()
+    rows[0]["jw"], rows[1]["jw"], rows[2]["jw"] = "HTML", "둘 다", "둘 다 아님"
+    md = render_judge(rows, 160, [])
+    assert "jw 판정 전" not in md
+    # 같은 칸 157 + HTML(1) + 둘 다(1) = 159, PDF는 157 + 둘 다(1) = 158. 둘 다 아님은 안 센다
+    assert "- HTML 쪽이 맞는 값을 가진 칸: 159/160" in md
+    assert "- PDF 쪽이 맞는 값을 가진 칸: 158/160" in md
+    assert "| 판정 전 | 0 |" in md
+
+
+def test_render_judge_counts_judged_cells_per_field_and_missing_material():
+    rows = rows3()
+    rows[0]["llm"] = None
+    md = render_judge(rows, 160, [])
+    assert "| 시공사 | 2 |" in md and "| 공급규모 | 1 |" in md
+    assert "| 계약일 | 0 |" in md  # 판정할 칸이 없는 필드도 0으로 센다
+    assert "재료(HTML 값·PDF 값·근거 줄·쪽·LLM 값)가 빠진 칸: 1" in md
+
+
+def test_render_judge_lists_ungrounded_cells_with_their_quote():
+    rows = rows3()
+    md = render_judge(rows, 160, [rows[0]])
+    assert "근거 줄을 그 쪽에서 못 찾은 칸: 1" in md
+    assert "| 2026000001 | 공급규모 | 2 | 공급규모 : 100세대 |" in md
+
+
+def test_render_judge_says_there_is_nothing_to_judge():
+    md = render_judge([], 160, [])
+    assert "판정할 칸 0/160" in md
+    assert "없음" in md
+
+
+def test_render_judge_pdf_only_fields_section_cites_the_reports():
+    md = render_judge(rows3(), 160, [])
+    sec = md.split("## HTML에 없는 필드")[1]
+    for f in ("전매제한 기간", "거주지 우선 비율", "신혼부부 소득 기준"):
+        assert f in sec
+    assert "HTML 쪽 값이 없다" in sec
+    assert "reports/pdf-fields-tune-2.md" in sec and "reports/pdf-resident-test.md" in sec
+    assert "| 전매제한 기간 | 47 | 47 |" in sec
+    assert "| 거주지 우선 비율 | 49 | 48 |" in sec
+    assert "| 거주지 우선 비율 | 30 | 29 |" in sec
+    assert "| 신혼부부 소득 기준 | 46 | 42 |" in sec

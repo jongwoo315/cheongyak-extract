@@ -8,6 +8,7 @@ from typing import NamedTuple
 from cheongyak_extract import compare
 from cheongyak_extract.extract import FIELDS, grounded
 from cheongyak_extract.normalize import normalize
+from cheongyak_extract.pdf_fields import PDF_FIELDS
 from cheongyak_extract.pdf_text import pages
 from cheongyak_extract.report import _cell
 from cheongyak_extract.truth import parse_truth
@@ -229,6 +230,35 @@ def merge_judge(picked: list[dict], filed: list[dict] | None) -> list[dict]:
     return [{**r, "jw": saved[_key(r)]["jw"], "jw_note": saved[_key(r)]["jw_note"]} for r in picked]
 
 
+def missing_material(row: dict) -> bool:
+    """jw가 판정할 재료(HTML 값·PDF 값·근거 줄·쪽·LLM 값) 중 비어 있는 것이 있다."""
+    return any(row[k] is None for k in ("html", "pdf", "quote", "page", "llm"))
+
+
+def ungrounded_judge(rows: list[dict], texts: dict[str, list[str]]) -> list[dict]:
+    """근거 줄이 있는데 적힌 쪽 텍스트에서 못 찾은 칸. 근거 줄 자체가 없는 칸은 여기 안 센다."""
+    out = []
+    for r in rows:
+        if r["quote"] is None:
+            continue
+        pages = texts[r["pbno"]]
+        if not (r["page"] is not None and 1 <= r["page"] <= len(pages)):
+            out.append(r)
+        elif not grounded(r["quote"], pages[r["page"] - 1]):
+            out.append(r)
+    return out
+
+
+# #152 리포트에서 옮긴 숫자. (필드, 정답 있는 칸, LLM이 맞힌 칸, 출처, 대상).
+# 정답은 구현 루프가 PDF를 읽고 적었다
+_PDF_ONLY_SOURCES = (
+    ("전매제한 기간", 47, 47, "reports/pdf-fields-tune-2.md", "기존 50건"),
+    ("거주지 우선 비율", 49, 48, "reports/pdf-fields-tune-2.md", "기존 50건"),
+    ("거주지 우선 비율", 30, 29, "reports/pdf-resident-test.md", "새 30건"),
+    ("신혼부부 소득 기준", 46, 42, "reports/pdf-fields-tune-2.md", "기존 50건"),
+)
+
+
 def _pct(n: int, total: int) -> str:
     return f"{n}/{total} ({n / total:.1%})" if total else f"{n}/{total} (—)"
 
@@ -332,3 +362,77 @@ def run_check(
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(render(checked), encoding="utf-8")
     return checked
+
+
+def render_judge(
+    rows: list[dict],
+    total_cells: int,
+    bad: list[dict],
+    fields: tuple[str, ...] = FIELDS,
+) -> str:
+    """rows는 jw 칸까지 채운 판정할 칸, bad는 근거 줄을 못 찾은 칸이다."""
+    same = total_cells - len(rows)
+    done = {j: sum(r["jw"] == j for r in rows) for j in JUDGES}
+    pending = sum(r["jw"] is None for r in rows)
+    md = "# 청약홈 HTML과 공고문 PDF 중 어느 쪽 값이 맞는지\n\n"
+    md += "HTML 값은 상세 HTML(`truth.parse_truth`), PDF 값은 `labels/pdf-values-20.json`, "
+    md += "LLM 값은 `reports/extract-new.md`의 틀리게 채운 칸 표다(표에 없으면 HTML 값과 같다고 본다). "
+    md += "청약홈과 OpenAI에 요청하지 않았다.\n\n"
+    md += "가정: 세 값이 모두 같은 칸은 두 방식 모두 맞다고 본다. "
+    md += f"이 가정이 들어간 칸은 같은 칸 {same}/{total_cells}이다.\n\n"
+    if pending:
+        md += f"**jw 판정 전.** `판정 전` {pending}칸이 남아 있어 방식별 합계를 쓰지 않는다. "
+        md += "`labels/source-judge.json`의 `jw` 칸을 채운 뒤 `judge-source`를 다시 돌린다.\n\n"
+    md += f"- 같은 칸 {_pct(same, total_cells)}\n"
+    md += f"- 판정할 칸 {_pct(len(rows), total_cells)}\n"
+    md += (
+        f"- 재료(HTML 값·PDF 값·근거 줄·쪽·LLM 값)가 빠진 칸: {sum(map(missing_material, rows))}\n"
+    )
+    md += f"- 근거 줄을 그 쪽에서 못 찾은 칸: {len(bad)}\n\n"
+    md += "## 판정할 칸\n\n"
+    md += (
+        _table(
+            ("공고", "필드", "HTML 값", "PDF 값", "쪽", "LLM 값", "jw 판정"),
+            [
+                (
+                    r["pbno"],
+                    r["field"],
+                    r["html"],
+                    r["pdf"],
+                    r["page"],
+                    r["llm"],
+                    r["jw"] or PENDING,
+                )
+                for r in rows
+            ],
+        )
+        if rows
+        else "없음\n"
+    )
+    md += "\n필드별 판정할 칸:\n\n"
+    md += _table(("필드", "판정할 칸"), [(f, sum(r["field"] == f for r in rows)) for f in fields])
+    if bad:
+        md += "\n근거 줄을 그 쪽에서 못 찾은 칸:\n\n"
+        md += _table(
+            ("공고", "필드", "쪽", "quote"),
+            [(r["pbno"], r["field"], r["page"], r["quote"]) for r in bad],
+        )
+    md += "\n## jw 판정별 칸 수\n\n"
+    md += _table(("jw 판정", "칸 수"), [*done.items(), (PENDING, pending)])
+    if not pending:
+        md += "\n방식별로 맞는 값을 가진 칸(같은 칸 + 그 방식이거나 `둘 다`로 판정한 칸):\n\n"
+        for name in ("HTML", "PDF"):
+            n = same + done[name] + done["둘 다"]
+            md += f"- {name} 쪽이 맞는 값을 가진 칸: {_pct(n, total_cells)}\n"
+        md += "- `둘 다 아님`은 어느 쪽에도 세지 않는다\n"
+    only = [f for f in PDF_FIELDS if f not in FIELDS]
+    md += "\n## HTML에 없는 필드\n\n"
+    md += f"{', '.join(only)}은(는) HTML 쪽 값이 없다"
+    md += f"(`truth.parse_truth`가 읽는 필드 {len(FIELDS)}개에 없다). "
+    md += "그래서 위 판정할 칸에 들어갈 수 없고, PDF 쪽 숫자만 #152 리포트에서 옮긴다. "
+    md += "정답은 jw가 아니라 구현 루프가 PDF를 읽고 적었다.\n\n"
+    md += _table(
+        ("필드", "정답 있는 칸", "LLM이 맞힌 칸", "대상", "출처"),
+        [(f, n, ok, which, src) for f, n, ok, src, which in _PDF_ONLY_SOURCES],
+    )
+    return md
