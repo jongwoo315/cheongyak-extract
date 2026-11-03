@@ -378,10 +378,16 @@ def test_load_judge_rejects_other_jw_values(tmp_path, bad):
         {**judge_cell(), "extra": 1},  # 키가 남는다
         judge_cell(jw_note=3),  # 메모는 문자열이거나 null
         judge_cell(page="2"),
+        judge_cell(page=True),  # bool은 int지만 쪽 번호가 아니다
+        judge_cell(page=0),
+        judge_cell(page=-1),
+        judge_cell(pbno=1),
+        judge_cell(quote=3),
+        "문자열",  # 객체가 아닌 칸
     ],
 )
 def test_load_judge_rejects_a_malformed_row(tmp_path, bad):
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="판정 파일|공급규모|2026000001"):
         load_judge(write_json(tmp_path, [bad]))
 
 
