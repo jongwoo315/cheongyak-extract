@@ -2,6 +2,7 @@
 
 import json
 import re
+from collections import Counter
 from pathlib import Path
 from typing import NamedTuple
 
@@ -218,15 +219,26 @@ def _key(r: dict) -> tuple[str, str]:
 def merge_judge(picked: list[dict], filed: list[dict] | None) -> list[dict]:
     """이번에 고른 칸에 파일에 적힌 jw·jw_note를 얹는다. 파일이 없으면 고른 칸 그대로다.
 
-    jw가 채운 칸을 덮어쓰지 않는다. 고른 칸과 파일의 칸이 다르면 말없이 버리지 않고 에러를 낸다.
+    jw가 채운 칸을 덮어쓰지 않는다. 고른 칸이 파일과 다르거나, 같은 칸의 HTML 값·PDF 값·근거 줄·쪽·
+    LLM 값이 jw가 본 값과 다르면 말없이 붙이지 않고 에러를 낸다.
     """
     if filed is None:
         return picked
+    seen = Counter(_key(r) for r in filed)
+    if dup := sorted(f"{p} {f}" for (p, f), n in seen.items() if n > 1):
+        raise ValueError(f"판정 파일에 같은 칸이 두 번 있다: {dup}")
     now, before = {_key(r) for r in picked}, {_key(r) for r in filed}
     if now != before:
         diff = sorted(f"{p} {f}" for p, f in now ^ before)
         raise ValueError(f"판정 파일의 칸이 이번에 고른 칸과 다르다: {diff}")
     saved = {_key(r): r for r in filed}
+    for r in picked:
+        for k in ("html", "pdf", "quote", "page", "llm"):
+            if saved[_key(r)][k] != r[k]:
+                raise ValueError(
+                    f"{r['pbno']} {r['field']}: jw가 본 {k} 값이 이번에 읽은 값과 다르다. "
+                    f"jw 판정을 새 값에 붙이지 않는다(파일 {saved[_key(r)][k]!r}, 이번 {r[k]!r})"
+                )
     return [{**r, "jw": saved[_key(r)]["jw"], "jw_note": saved[_key(r)]["jw_note"]} for r in picked]
 
 
@@ -241,10 +253,10 @@ def ungrounded_judge(rows: list[dict], texts: dict[str, list[str]]) -> list[dict
     for r in rows:
         if r["quote"] is None:
             continue
-        pages = texts[r["pbno"]]
-        if not (r["page"] is not None and 1 <= r["page"] <= len(pages)):
+        body = texts[r["pbno"]]
+        if not (r["page"] is not None and 1 <= r["page"] <= len(body)):
             out.append(r)
-        elif not grounded(r["quote"], pages[r["page"] - 1]):
+        elif not grounded(r["quote"], body[r["page"] - 1]):
             out.append(r)
     return out
 

@@ -390,10 +390,31 @@ def test_merge_judge_without_a_file_returns_the_picked_cells():
 
 def test_merge_judge_keeps_jw_and_note_from_the_file_and_never_overwrites_them():
     picked = [judge_cell()]
-    filled = [judge_cell(jw="PDF", jw_note="PDF 줄이 맞다", pdf="낡은 값")]
+    filled = [judge_cell(jw="PDF", jw_note="PDF 줄이 맞다")]
     got = merge_judge(picked, filled)
     assert (got[0]["jw"], got[0]["jw_note"]) == ("PDF", "PDF 줄이 맞다")
-    assert got[0]["pdf"] == "90"  # 자료 칸은 이번에 읽은 값이다
+
+
+@pytest.mark.parametrize(
+    "key,value",
+    [
+        ("html", "바뀐 값"),
+        ("pdf", "낡은 값"),
+        ("llm", "바뀐 값"),
+        ("quote", "다른 줄"),
+        ("page", 9),
+    ],
+)
+def test_merge_judge_raises_when_the_evidence_changed_under_a_saved_verdict(key, value):
+    # jw가 본 값과 이번에 읽은 값이 다르면 그 판정을 새 값에 그대로 붙이지 않는다
+    filled = [judge_cell(jw="PDF", **{key: value})]
+    with pytest.raises(ValueError, match=f"공급규모.*{key}"):
+        merge_judge([judge_cell()], filled)
+
+
+def test_merge_judge_raises_on_a_duplicated_cell_in_the_file():
+    with pytest.raises(ValueError, match="두 번"):
+        merge_judge([judge_cell()], [judge_cell(jw="HTML"), judge_cell(jw="PDF")])
 
 
 def test_merge_judge_raises_when_the_cells_differ_from_the_file():

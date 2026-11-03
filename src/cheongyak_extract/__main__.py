@@ -15,7 +15,7 @@ from cheongyak_extract.pdf_fields import (
 from cheongyak_extract.pdf_text import TEXT_MODES
 from cheongyak_extract.pipeline import evaluate, run
 from cheongyak_extract.raw_check import check_raw
-from cheongyak_extract.truth_check import run_check, run_judge
+from cheongyak_extract.truth_check import missing_material, run_check, run_judge
 
 RAW_DIR = Path("data/raw")
 LLM_CACHE = Path("data/llm")
@@ -150,6 +150,7 @@ def main(argv: list[str] | None = None) -> int:
         pending = sum(r["jw"] is None for r in judged.rows)
         print(
             f"판정할 칸 {len(judged.rows)}/{judged.total}, 판정 전 {pending}, "
+            f"재료가 빠진 칸 {sum(map(missing_material, judged.rows))}, "
             f"근거를 못 찾은 칸 {len(judged.bad)}"
         )
         return 0 if not judged.bad else 1

@@ -353,8 +353,8 @@ def test_judge_source_command_makes_no_client_and_passes_paths(monkeypatch, caps
 
     def spy(pbnos, raw_dir, labels_path, md, judge, out):
         calls.append((len(pbnos), *map(str, (raw_dir, labels_path, md, judge, out))))
-        row = {"jw": None}
-        return judged([row, row])
+        row = {"jw": None, "html": "a", "pdf": "b", "quote": "q", "page": 1, "llm": "a"}
+        return judged([row, row, {**row, "pdf": None, "quote": None, "page": None}])
 
     def no_network(*a, **k):
         raise AssertionError("judge-source는 청약홈·OpenAI에 요청하지 않는다")
@@ -374,7 +374,10 @@ def test_judge_source_command_makes_no_client_and_passes_paths(monkeypatch, caps
             "reports/source-judge.md",
         )
     ]
-    assert capsys.readouterr().out.strip() == "판정할 칸 2/160, 판정 전 2, 근거를 못 찾은 칸 0"
+    assert (
+        capsys.readouterr().out.strip()
+        == "판정할 칸 3/160, 판정 전 3, 재료가 빠진 칸 1, 근거를 못 찾은 칸 0"
+    )
 
 
 def test_judge_source_passes_the_out_path(monkeypatch):
