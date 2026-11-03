@@ -602,6 +602,21 @@ def test_run_judge_reads_the_filled_file_without_overwriting_it(tmp_path):
     assert "jw 판정 전" not in text and "PDF 쪽이 맞는 값을 가진 칸: 8/8" in text
 
 
+def test_run_judge_report_counts_mixed_verdicts_per_method(tmp_path):
+    raw, labels_path, md, judge, out = judge_paths(tmp_path)
+    rows = run_judge([PB], raw, labels_path, md, judge, out, expected=8).rows
+    assert len(rows) >= 2
+    verdicts = ["HTML"] + ["PDF"] * (len(rows) - 1)
+    for r, v in zip(rows, verdicts, strict=True):
+        r["jw"] = v
+    judge.write_text(json.dumps(rows, ensure_ascii=False), encoding="utf-8")
+    run_judge([PB], raw, labels_path, md, judge, out, expected=8)
+    same, n = 8 - len(rows), len(rows)
+    text = out.read_text(encoding="utf-8")
+    assert f"- HTML 쪽이 맞는 값을 가진 칸: {same + 1}/8" in text
+    assert f"- PDF 쪽이 맞는 값을 가진 칸: {same + n - 1}/8" in text
+
+
 def test_run_judge_rejects_a_bad_jw_value_in_the_file(tmp_path):
     raw, labels_path, md, judge, out = judge_paths(tmp_path)
     rows = run_judge([PB], raw, labels_path, md, judge, out, expected=8).rows
