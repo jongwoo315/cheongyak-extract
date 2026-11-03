@@ -264,7 +264,7 @@ def raw_and_labels(tmp_path):
         "T": {RESALE: cell("6개월", "전매제한 6개월", 1), RESIDENT: null(), INCOME: null()},
         "A": {
             RESALE: cell("3년", "전매제한 3년", 1),
-            RESIDENT: cell("평택시 30% / 기타 70%", "평택시 30% 기타 70%", 1),
+            RESIDENT: cell("평택시 30% / 기타 70%", "평택시 30% 기타 70%", 1, "공통 표"),
             INCOME: cell("100% (맞벌이 120%)", "신혼부부 100% 맞벌이 120%", 1),
         },
         "B": {RESALE: null(), RESIDENT: null(), INCOME: null()},
@@ -543,3 +543,108 @@ def test_resident_block_is_none_without_the_2nd_rank_line():
 def test_resident_block_is_none_when_the_area_line_is_more_than_3_lines_below():
     page = "- 2순위  : ①지역 → ②추첨\n\n\n\n\n■ ①지역 : 해당지역 거주자\n"
     assert pf.resident_block([page]) is None
+
+
+# --- 거주지 값의 꼴·합·정답 검사(설계 §값의 꼴과 계산, §정답 검사에 더하는 것) ---
+
+
+@pytest.mark.parametrize(
+    "value,want",
+    [
+        ("제주특별자치도 100% / 기타지역 0%", "100"),  # 0%인 지역은 정규형에서 뺀다
+        ("수원시 100% / 기타 0.0%", "100"),
+        ("해당지역 100%", "100"),
+        ("평택시 30% / 경기도 20% / 기타 50%", "30/20/50"),
+        ("해당지역 0%", None),  # 빼고 나면 아무것도 안 남는다
+    ],
+)
+def test_resident_normal_form_drops_zero_percent_regions(value, want):
+    assert pf.normal_form(RESIDENT, value) == want
+
+
+def test_zero_percent_is_kept_for_the_other_percent_fields():
+    assert pf.normal_form(INCOME, "0% (맞벌이 120%)") == "0/120"
+
+
+def test_an_old_form_label_and_the_new_form_value_compare_equal():
+    assert pf.cell_state(RESIDENT, "제주특별자치도 100% / 기타지역 0%", "해당지역 100%") == pf.RIGHT
+
+
+@pytest.mark.parametrize(
+    "value,want",
+    [
+        ("해당 50% / 서울특별시 50% / 기타 50%", True),  # 2026000449의 150
+        ("평택시 30% / 경기도 20% / 기타 50%", False),
+        ("해당지역 100%", False),
+        ("제주특별자치도 100% / 기타지역 0%", False),
+        ("해당지역 70% / 기타 20%", True),
+        ("해당지역 우선", False),  # %가 없으면 합을 말할 수 없다
+        (None, False),
+    ],
+)
+def test_percent_sum_is_not_100_is_recognised(value, want):
+    assert pf.sum_is_not_100(value) is want
+
+
+BLOCK_PAGES = [
+    "표지",
+    "■ ①지역 : 해당 시·도 거주자 50% → 기타지역 거주자 50%\n",  # 2쪽: 다자녀 특별공급
+    "- 2순위  : ①지역 → ②추첨\n\n"
+    "■ ①지역 : 해당지역 거주자(수원시) → 기타지역 거주자(서울)\n■ ②가점\n",
+]
+NO_BLOCK_PAGES = ["표지", "<표2> 지역우선 공급기준 해당지역 100% 기타지역 0%\n해당지역 거주자 우선"]
+
+
+def resident_problems(value, quote, page, pages, note=None):
+    raw = cell(value, quote, page, note)
+    return pf._problems(RESIDENT, raw, pages)
+
+
+def test_a_resident_cell_read_inside_the_block_has_no_problem():
+    got = resident_problems("해당지역 100%", "해당지역 거주자(수원시)", 3, BLOCK_PAGES)
+    assert got == ()
+
+
+def test_a_resident_quote_outside_the_block_is_flagged_even_if_it_is_on_its_page():
+    # 2쪽에는 있는 문장이지만 일반공급 ①지역 묶음(3쪽) 밖이다
+    got = resident_problems("해당지역 50%", "해당 시·도 거주자 50%", 2, BLOCK_PAGES)
+    assert pf.QUOTE_OUTSIDE_BLOCK in got
+    assert pf.QUOTE_NOT_ON_PAGE not in got
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        "제주특별자치도 100% / 기타지역 0%",  # 0%인 지역을 적었다
+        "해당지역 100% / 기타 50%",  # 「해당지역 100%」와 %를 섞었다
+        "수원시 100%",  # 한 지역 100%는 「해당지역 100%」로 쓴다
+    ],
+)
+def test_a_value_that_is_not_in_the_table_form_is_flagged(value):
+    got = resident_problems(value, "해당지역 거주자(수원시)", 3, BLOCK_PAGES)
+    assert pf.BAD_SHAPE in got
+
+
+def test_a_percent_sum_other_than_100_is_flagged_on_a_label():
+    value = "해당 50% / 서울 50% / 기타 50%"
+    got = resident_problems(value, "해당지역 거주자(수원시)", 3, BLOCK_PAGES)
+    assert pf.SUM_NOT_100 in got
+
+
+@pytest.mark.parametrize(
+    "note,flagged",
+    [
+        ("p2 <표2> 공통 표", False),
+        ("해당지역 우선 문장에서 읽었다", False),
+        ("p2에서 읽었다", True),
+        (None, True),
+    ],
+)
+def test_without_a_block_the_note_says_which_of_rule_2_or_3_it_was_read_from(note, flagged):
+    got = resident_problems("해당지역 100%", "해당지역 거주자 우선", 2, NO_BLOCK_PAGES, note)
+    assert (pf.NO_RULE_NOTE in got) is flagged
+
+
+def test_the_block_checks_do_not_apply_to_the_other_fields():
+    raw = cell("3년", "전매제한 3년", 2)
+    assert pf._problems(RESALE, raw, ["표지", "전매제한 3년"]) == ()

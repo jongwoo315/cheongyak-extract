@@ -108,7 +108,34 @@ def normal_form(field: str, value: str | None) -> str | None:
             return None
         return ",".join(str(m) for m in sorted(set(found)))
     percents = _PERCENT.findall(value)
+    if field == RESIDENT:  # 0%인 지역은 쓰지 않는 꼴이라 정규형에서 뺀다
+        percents = [p for p in percents if float(p) != 0]
     return "/".join(_plain(p) for p in percents) if percents else None
+
+
+def sum_is_not_100(value: str | None) -> bool:
+    """거주지 값의 %를 모두 더하면 100이 아니다. %가 없으면 합을 말할 수 없으므로 False."""
+    percents = _PERCENT.findall(value or "")
+    return bool(percents) and abs(sum(map(float, percents)) - 100) > 1e-9
+
+
+_ONE_REGION = re.compile(r"[^/%]*\S[^/%]*\d+(?:\.\d+)?\s*%")  # 「지역 이름 N%」 한 토막
+
+
+def _resident_shape_ok(value: str) -> bool:
+    """설계 §값의 꼴과 계산 표의 꼴이다: `해당지역 100%` 하나, 또는 `이름 N% / 이름 N% ...` 둘 이상.
+
+    0%인 지역은 쓰지 않는다. `해당지역 100%`를 다른 토막과 섞지 않는다.
+    한 지역 100%는 `해당지역 100%`로 쓴다.
+    """
+    if _squash(value) == "해당지역100%":
+        return True
+    parts = value.split("/")
+    if len(parts) < 2 or any(not _ONE_REGION.fullmatch(p.strip()) for p in parts):
+        return False
+    return all(float(x) != 0 for x in _PERCENT.findall(value)) and not any(
+        _squash(p) == "해당지역100%" for p in parts
+    )
 
 
 def _has_number(number: str, text: str) -> bool:
@@ -186,6 +213,11 @@ def pick(pbnos: list[str], n: int = NOTICES, tune: int = TUNE) -> Split:
 QUOTE_NOT_ON_PAGE = "quote가 그 쪽 텍스트에 없음"
 NUMBER_NOT_IN_QUOTE = "숫자가 quote에 없음"
 NO_NORMAL_FORM = "값의 정규형을 만들 수 없음"
+QUOTE_OUTSIDE_BLOCK = "일반공급 ①지역 묶음 밖"
+BAD_SHAPE = "값의 꼴이 표와 다름"
+SUM_NOT_100 = "%의 합이 100이 아님"
+NO_RULE_NOTE = "묶음이 없는 공고인데 note에 규칙 2·3 표시가 없음"
+RULE_2_MARK, RULE_3_MARK = "공통 표", "해당지역 우선 문장"  # 묶음이 없을 때 note에 적는 말
 
 _KEYS = {"value", "quote", "page", "note"}
 
@@ -229,7 +261,23 @@ def _problems(field: str, raw: dict, texts: list[str]) -> tuple[str, ...]:
         found.append(NO_NORMAL_FORM)
     if missing := number_problems(field, raw["value"], raw["quote"]):
         found.append(f"{NUMBER_NOT_IN_QUOTE}: {', '.join(missing)}")
+    if field == RESIDENT:
+        found += _resident_problems(raw, texts)
     return tuple(found)
+
+
+def _resident_problems(raw: dict, texts: list[str]) -> list[str]:
+    found = []
+    if block := resident_block(texts):
+        if not grounded(raw["quote"], block.text):
+            found.append(QUOTE_OUTSIDE_BLOCK)
+    elif not any(mark in (raw["note"] or "") for mark in (RULE_2_MARK, RULE_3_MARK)):
+        found.append(NO_RULE_NOTE)
+    if not _resident_shape_ok(raw["value"]):
+        found.append(BAD_SHAPE)
+    if sum_is_not_100(raw["value"]):
+        found.append(SUM_NOT_100)
+    return found
 
 
 def check_labels(
