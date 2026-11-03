@@ -134,6 +134,38 @@ def number_problems(field: str, value: str, quote: str) -> list[str]:
     return [n for n in dict.fromkeys(_NUMBER.findall(value)) if not _has_number(n, text)]
 
 
+class Block(NamedTuple):
+    page: int  # 1부터
+    text: str
+
+
+_ORDER_LINE = re.compile(r"2\s*순위\s*:\s*①\s*지역")  # 일반공급 절에만 있다. 특별공급 절에는 없다
+_AREA_MARK = re.compile(r"■\s*①\s*지역")
+_BELOW = 3  # 「2순위」 줄 아래 이 줄 수 안에 「■ ①지역」 줄이 온다
+
+
+def resident_block(pages: list[str]) -> Block | None:
+    """일반공급 ①지역 묶음(설계 §고르는 규칙 1). 없으면 None.
+
+    「2순위 : ①지역」 줄 아래 3줄 안의 「■ ①지역」 줄부터, 다음 「■」가 든 줄 앞까지다.
+    """
+    for n, page in enumerate(pages, start=1):
+        lines = page.split("\n")
+        for i, line in enumerate(lines):
+            if not _ORDER_LINE.search(line):
+                continue
+            for j in range(i + 1, min(i + 1 + _BELOW, len(lines))):
+                if not (mark := _AREA_MARK.search(lines[j])):
+                    continue
+                body = [lines[j][mark.start() :]]
+                for rest in lines[j + 1 :]:
+                    if "■" in rest:
+                        break
+                    body.append(rest)
+                return Block(n, "\n".join(body).rstrip())
+    return None
+
+
 class Split(NamedTuple):
     tune: list[str]
     test: list[str]

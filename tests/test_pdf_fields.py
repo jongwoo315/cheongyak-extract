@@ -474,3 +474,72 @@ def test_a_value_with_no_ground_on_the_page_is_blank_and_the_reason_is_reported(
     cell_a = next(c for c in result.cells if (c.pbno, c.field) == ("A", RESALE))
     assert (cell_a.state, cell_a.value, cell_a.why) == (pf.BLANK, None, NEITHER_IN_PAGE)
     assert NEITHER_IN_PAGE in md
+
+
+# --- 일반공급 ①지역 묶음(설계 §고르는 규칙 1) ---
+
+MULTI_CHILD = (
+    "  ■ 당첨자 선정 순서  : ①지역 → ②배점\n"
+    "  ■ ①지역  : 해당 시·도 거주자 50% → 기타지역 거주자 50%\n"
+    "  ■ ②배점\n"
+)
+ELDER = "  ■ ①지역  : 해당지역 거주자 → 기타지역 거주자\n"
+GENERAL = (
+    "                 - 1순위 가점제  : ①지역 → ②가점\n"
+    "                 - 2순위  : ①지역 → ②추첨\n"
+    "\n"
+    "       ■ ①지역  : 해당지역 거주자(수원시 거주자) → 기타지역 거주자(경기도 거주자)\n"
+    "       ■ ②가점\n"
+    "                 - 전용면적별 적용비율\n"
+)
+
+
+def test_resident_block_picks_the_general_supply_one_not_the_multi_child_50_percent():
+    pages = ["표지", MULTI_CHILD, ELDER, GENERAL]  # 2026000449 꼴
+    got = pf.resident_block(pages)
+    assert got.page == 4
+    assert "해당지역 거주자(수원시 거주자)" in got.text
+    assert "50%" not in got.text
+
+
+def test_resident_block_runs_from_the_marker_to_just_before_the_next_marker_line():
+    got = pf.resident_block([GENERAL])
+    assert got.text.startswith("■ ①지역")
+    assert "경기도 거주자)" in got.text
+    assert "②가점" not in got.text and "전용면적" not in got.text
+
+
+def test_resident_block_follows_the_line_after_a_marker_only_line():
+    page = (
+        "   - 2순위  : ①지역 → ②추첨\n\n"
+        "       ■ ①지역\n"
+        "  당첨자         - 해당지역 거주자 (춘천시 6개월 이상) → 기타지역 거주자\n"
+        " 선정방법  ■ ②가점\n"
+        "     - 적용비율\n"
+    )  # 2026000312 꼴: 「■ ①지역」만 한 줄이고 내용은 다음 줄에 있다
+    got = pf.resident_block(["표지", page])
+    assert got.page == 2
+    assert "춘천시 6개월 이상" in got.text
+    assert "②가점" not in got.text and "적용비율" not in got.text
+
+
+@pytest.mark.parametrize(
+    "order,area",
+    [
+        ("- 2순위  : ① 지역 → ②추첨", "■ ① 지역 : 해당지역 거주자"),
+        ("- 2 순위 :①지역 → ②추첨", "■ ①지역: 해당지역 거주자"),
+    ],
+)
+def test_resident_block_allows_spaces_inside_the_markers(order, area):
+    got = pf.resident_block([f"{order}\n{area}\n"])
+    assert got is not None and "해당지역 거주자" in got.text
+
+
+def test_resident_block_is_none_without_the_2nd_rank_line():
+    assert pf.resident_block(["표지", MULTI_CHILD, ELDER]) is None
+    assert pf.resident_block([]) is None
+
+
+def test_resident_block_is_none_when_the_area_line_is_more_than_3_lines_below():
+    page = "- 2순위  : ①지역 → ②추첨\n\n\n\n\n■ ①지역 : 해당지역 거주자\n"
+    assert pf.resident_block([page]) is None
