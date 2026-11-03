@@ -55,3 +55,4 @@
 - 이 리뷰는 `pr-review-toolkit:review-pr` 에이전트 넷(code-reviewer · pr-test-analyzer · silent-failure-hunter · comment-analyzer)과 직접 확인한 것(2026000502 정답을 PDF 36쪽에서 다시 읽어 `해당지역 100%`가 맞음을 확인, 커밋 순서, README 수치)으로 썼다.
 - fix 2건은 둘 다 `tests/`만 바꿨다. `src/`가 안 바뀌어서 프롬프트·캐시·점수는 그대로다. 테스트는 fix 뒤 557 passed, ruff 통과.
 - fix 뒤에 변이 시험 둘을 직접 돌렸다: `blanked.update(more.blanked)` 삭제와 `pick_resident` 제외 목록 축소. 둘 다 새 테스트가 실패한다.
+- 요약 코멘트 1건과 인라인 스레드 4건(지적 3·4·5·6)을 HEAD `cdd80d8`에 올렸다. 실패 0건.
