@@ -74,7 +74,8 @@ def main(argv: list[str] | None = None) -> int:
     t.add_argument("--out", type=Path, default=Path("reports/truth-check.md"), help="리포트 경로")
     j = sub.add_parser(
         "judge-source",
-        help="HTML 값과 PDF 값이 다른 칸을 jw가 판정할 파일로 만들고(있으면 읽고) 집계한다"
+        help="HTML 값·PDF 값·LLM 값이 정규화 뒤 하나라도 다른 칸을 jw가 판정할 파일로 "
+        "만들고(있으면 읽고) 집계한다"
         "(청약홈·OpenAI 요청 없음)",
     )
     j.add_argument("--labels", type=Path, default=Path("labels/pdf-values-20.json"))
