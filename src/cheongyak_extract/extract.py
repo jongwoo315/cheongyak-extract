@@ -210,9 +210,11 @@ class FieldSet:
 EIGHT_FIELDS = FieldSet(FIELDS, _FIELD_HELP, PROMPT_HEAD)  # 인자를 안 주면 쓰는 묶음
 
 
-def build_prompt(pages: list[str], fields: FieldSet = EIGHT_FIELDS) -> str:
+def build_prompt(pages: list[str], fields: FieldSet = EIGHT_FIELDS, only: int | None = None) -> str:
+    """only가 있으면 그 쪽(1부터)만 프롬프트에 넣는다. 쪽 번호는 그대로 <page only>다."""
     helps = "".join(f"- {f}: {fields.help[f]}\n" for f in fields.names)
-    body = "".join(f"<page {i}>\n{t}\n</page>\n" for i, t in enumerate(pages, start=1))
+    shown = [(only, pages[only - 1])] if only else enumerate(pages, start=1)
+    body = "".join(f"<page {i}>\n{t}\n</page>\n" for i, t in shown)
     return f"{fields.head}{helps}\n공고문:\n{body}"
 
 
@@ -247,10 +249,10 @@ def _check(raw: object, pages: list[str], rule: str) -> tuple[Extraction, str | 
 
 
 def extract_rules(
-    pages: list[str], ask: Ask, fields: FieldSet = EIGHT_FIELDS
+    pages: list[str], ask: Ask, fields: FieldSet = EIGHT_FIELDS, only: int | None = None
 ) -> dict[str, Extracted]:
     """LLM을 한 번 불러 fields의 필드를 받고, 같은 응답에 A·B·C안을 각각 걸어 결과를 돌려준다."""
-    raw = ask(build_prompt(pages, fields))  # 호출 쪽 예외를 응답 모양 오류로 삼키지 않는다
+    raw = ask(build_prompt(pages, fields, only))  # 호출 쪽 예외를 응답 모양 오류로 삼키지 않는다
     try:
         data = json.loads(raw)
     except json.JSONDecodeError:
@@ -273,9 +275,13 @@ def extract_rules(
 
 
 def extract(
-    pages: list[str], ask: Ask, rule: str = DEFAULT_RULE, fields: FieldSet = EIGHT_FIELDS
+    pages: list[str],
+    ask: Ask,
+    rule: str = DEFAULT_RULE,
+    fields: FieldSet = EIGHT_FIELDS,
+    only: int | None = None,
 ) -> Extracted:
     """LLM을 한 번 불러 fields의 필드를 받고, rule안으로 근거를 못 찾는 칸을 비운다."""
     if rule not in RULES:
         raise ValueError(f"값을 남기는 조건은 {RULES} 중 하나다: {rule!r}")
-    return extract_rules(pages, ask, fields)[rule]
+    return extract_rules(pages, ask, fields, only)[rule]

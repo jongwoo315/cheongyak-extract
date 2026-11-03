@@ -252,27 +252,39 @@ def pdf_result(skipped=(), problems=()):
     return PdfResult([], list(skipped), list(problems), 0)
 
 
-def test_eval_pdf_passes_the_set_paths_and_a_three_field_ask(monkeypatch, fake_llm):
-    from cheongyak_extract.pdf_fields import PDF_FIELD_SET
+@pytest.mark.parametrize(
+    "which,labels", [("tune", "labels/pdf-only-50.json"), ("test", "labels/pdf-resident-30.json")]
+)
+def test_eval_pdf_passes_the_set_labels_and_one_ask_per_field_group(
+    monkeypatch, fake_llm, which, labels
+):
+    from cheongyak_extract.pdf_fields import RESIDENT_BLOCK_SET, TWO_FIELD_SET
 
     calls, schemas = [], []
-    monkeypatch.setattr(cli, "make_ask", lambda model, cache, schema: schemas.append(schema) or ASK)
-    monkeypatch.setattr(cli, "evaluate_pdf", lambda *a, **k: calls.append(a) or pdf_result())
+    resident_ask = object()
+
+    def make(model, cache, schema):
+        schemas.append(schema)
+        return ASK if schema == TWO_FIELD_SET.schema else resident_ask
+
+    monkeypatch.setattr(cli, "make_ask", make)
+    monkeypatch.setattr(cli, "evaluate_pdf", lambda *a, **k: calls.append((a, k)) or pdf_result())
 
     def no_network(*a, **k):
         raise AssertionError("eval-pdf는 청약홈에 요청하지 않는다")
 
     monkeypatch.setattr(cli, "make_client", no_network)
-    assert cli.main(["eval-pdf", "--set", "test", "--out", "reports/x.md"]) == 0
-    set_name, raw_dir, labels, ask, out = calls[0]
-    assert (set_name, str(raw_dir), str(labels), ask, str(out)) == (
-        "test",
+    assert cli.main(["eval-pdf", "--set", which, "--out", "reports/x.md"]) == 0
+    (set_name, raw_dir, got_labels, ask, out), kw = calls[0]
+    assert (set_name, str(raw_dir), str(got_labels), ask, str(out)) == (
+        which,
         "data/raw",
-        "labels/pdf-only-50.json",
+        labels,
         ASK,
         "reports/x.md",
     )
-    assert schemas == [PDF_FIELD_SET.schema]
+    assert kw == {"resident_ask": resident_ask}
+    assert schemas == [TWO_FIELD_SET.schema, RESIDENT_BLOCK_SET.schema]
 
 
 def test_eval_pdf_requires_a_valid_set_and_out():
@@ -310,13 +322,20 @@ def test_check_pdf_labels_makes_no_llm_and_exits_1_on_a_flagged_cell(monkeypatch
     flagged = LabelCell("A", "f", "v", "q", 1, None, ("quote가 그 쪽 텍스트에 없음",))
     clean = LabelCell("A", "g", None, None, None, "찾아봄", ())
 
-    def fake(raw_dir, labels, out):
-        calls.append((str(raw_dir), str(labels), str(out)))
+    def fake(raw_dir, tune, test, out):
+        calls.append((str(raw_dir), str(tune), str(test), str(out)))
         return [clean, flagged]
 
     monkeypatch.setattr(cli, "check_pdf_labels", fake)
     assert cli.main(["check-pdf-labels"]) == 1
-    assert calls == [("data/raw", "labels/pdf-only-50.json", "reports/pdf-labels.md")]
+    assert calls == [
+        (
+            "data/raw",
+            "labels/pdf-only-50.json",
+            "labels/pdf-resident-30.json",
+            "reports/pdf-labels.md",
+        )
+    ]
     assert fake_llm == []
     assert "검사에 걸린 칸 1" in capsys.readouterr().out
     monkeypatch.setattr(cli, "check_pdf_labels", lambda *a: [clean])

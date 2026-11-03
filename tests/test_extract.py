@@ -364,3 +364,23 @@ def test_extract_with_another_field_set_reports_a_missing_key_and_bad_json():
     assert out.blanked["나필드"] == ex.NO_KEY
     bad = ex.extract_rules(PAGES, lambda p: "[]", TWO)["C"]
     assert tuple(bad.fields) == TWO.names and set(bad.blanked.values()) == {ex.BAD_JSON}
+
+
+def test_only_puts_just_that_page_in_the_prompt_with_its_real_page_number():
+    prompt = build_prompt(PAGES, TWO, only=2)
+    assert f"<page 2>\n{PAGES[1]}\n</page>\n" in prompt
+    assert "<page 1>" not in prompt and prompt.count("<page ") == 1
+    assert build_prompt(PAGES, TWO, only=None) == build_prompt(PAGES, TWO)
+
+
+def test_extract_with_only_asks_one_page_and_still_checks_the_evidence_on_that_page():
+    asked = []
+    body = {"가필드": cell("358세대", "일반분양 358세대", 2), "나필드": cell(None, None, None)}
+
+    def ask(prompt):
+        asked.append(prompt)
+        return json.dumps(body, ensure_ascii=False)
+
+    out = extract(PAGES, ask, fields=TWO, only=2)
+    assert asked == [build_prompt(PAGES, TWO, only=2)]
+    assert out.fields["가필드"].page == 2
