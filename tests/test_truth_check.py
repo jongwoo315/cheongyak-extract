@@ -442,6 +442,13 @@ def test_ungrounded_judge_finds_a_quote_missing_from_its_page():
     assert [r["field"] for r in got] == ["시공사", "계약일"]
 
 
+def test_ungrounded_judge_flags_a_quote_whose_page_is_missing_or_not_a_page_number():
+    no_page = judge_cell(field="시공사", quote="공급규모 : 100세대", page=None)
+    zero = judge_cell(field="계약일", quote="공급규모 : 100세대", page=0)  # body[-1]을 읽지 않는다
+    got = ungrounded_judge([no_page, zero], PAGES)
+    assert [r["field"] for r in got] == ["시공사", "계약일"]
+
+
 def test_ungrounded_judge_does_not_flag_a_cell_without_a_quote():
     # 근거가 아예 없는 칸은 「못 찾은 칸」이 아니라 「재료가 빠진 칸」이다
     assert ungrounded_judge([judge_cell(pdf=None, quote=None, page=None)], PAGES) == []
