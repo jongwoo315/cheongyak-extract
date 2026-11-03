@@ -443,7 +443,10 @@ def render_judge(
         )
     md += "\n## jw 판정별 칸 수\n\n"
     md += _table(("jw 판정", "칸 수"), [*done.items(), (PENDING, pending)])
-    if not pending:
+    if bad and not pending:
+        md += "\n근거 줄을 못 찾은 칸이 있어 방식별 합계를 쓰지 않는다. "
+        md += "위 표의 쪽과 quote를 고친 뒤 다시 돌린다.\n"
+    if not pending and not bad:
         md += "\n방식별로 맞는 값을 가진 칸(같은 칸 + 그 방식이거나 `둘 다`로 판정한 칸):\n\n"
         for name in ("HTML", "PDF"):
             n = same + done[name] + done["둘 다"]

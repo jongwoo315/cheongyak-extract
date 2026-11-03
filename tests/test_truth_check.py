@@ -516,6 +516,18 @@ def test_render_judge_counts_judged_cells_per_field_and_missing_material():
     assert "재료(HTML 값·PDF 값·근거 줄·쪽·LLM 값)가 빠진 칸: 1" in md
 
 
+def test_render_judge_writes_no_method_totals_while_a_quote_is_not_found():
+    # 근거 줄이 쪽에 없는데 jw가 판정을 끝냈으면 합계는 근거 없는 판정을 센 숫자다
+    rows = rows3()
+    for r in rows:
+        r["jw"] = "PDF"
+    md = render_judge(rows, 160, [rows[0]])
+    assert "방식별로 맞는 값을 가진 칸" not in md
+    assert "근거 줄을 못 찾은 칸이 있어" in md
+    clean = render_judge(rows, 160, [])
+    assert "방식별로 맞는 값을 가진 칸" in clean and "근거 줄을 못 찾은 칸이 있어" not in clean
+
+
 def test_render_judge_lists_ungrounded_cells_with_their_quote():
     rows = rows3()
     md = render_judge(rows, 160, [rows[0]])
