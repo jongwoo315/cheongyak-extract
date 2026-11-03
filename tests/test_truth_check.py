@@ -19,6 +19,7 @@ from cheongyak_extract.truth_check import (
     render_judge,
     reread,
     run_check,
+    run_judge,
     ungrounded_judge,
 )
 from pdfs import make_pdf
@@ -511,3 +512,65 @@ def test_render_judge_pdf_only_fields_section_cites_the_reports():
     assert "| 거주지 우선 비율 | 49 | 48 |" in sec
     assert "| 거주지 우선 비율 | 30 | 29 |" in sec
     assert "| 신혼부부 소득 기준 | 46 | 42 |" in sec
+
+
+# ---- #153 Task 3: run_judge ----
+
+
+def judge_paths(tmp_path):
+    raw, labels_path, md = write_raw(tmp_path)
+    return raw, labels_path, md, tmp_path / "labels" / "source-judge.json", tmp_path / "r" / "j.md"
+
+
+def test_run_judge_creates_the_judge_file_with_empty_jw_and_writes_the_report(tmp_path):
+    raw, labels_path, md, judge, out = judge_paths(tmp_path)
+    got = run_judge([PB], raw, labels_path, md, judge, out, expected=8)
+    filed = json.loads(judge.read_text(encoding="utf-8"))
+    assert filed == got.rows
+    assert "공급규모" in {r["field"] for r in filed}  # LLM 400세대 · HTML 496세대 · PDF 496
+    assert all(r["jw"] is None and r["jw_note"] is None for r in filed)
+    text = out.read_text(encoding="utf-8")
+    assert "jw 판정 전" in text and f"판정할 칸 {len(filed)}/8" in text
+    assert got.total == 8 and got.bad == []
+
+
+def test_run_judge_reads_the_filled_file_without_overwriting_it(tmp_path):
+    raw, labels_path, md, judge, out = judge_paths(tmp_path)
+    first = run_judge([PB], raw, labels_path, md, judge, out, expected=8)
+    filed = first.rows
+    for r in filed:
+        r["jw"], r["jw_note"] = "PDF", "내가 봤다"
+    judge.write_text(json.dumps(filed, ensure_ascii=False), encoding="utf-8")
+    before = judge.read_text(encoding="utf-8")
+    got = run_judge([PB], raw, labels_path, md, judge, out, expected=8)
+    assert judge.read_text(encoding="utf-8") == before  # 다시 쓰지 않는다
+    assert all((r["jw"], r["jw_note"]) == ("PDF", "내가 봤다") for r in got.rows)
+    text = out.read_text(encoding="utf-8")
+    assert "jw 판정 전" not in text and "PDF 쪽이 맞는 값을 가진 칸: 8/8" in text
+
+
+def test_run_judge_rejects_a_bad_jw_value_in_the_file(tmp_path):
+    raw, labels_path, md, judge, out = judge_paths(tmp_path)
+    rows = run_judge([PB], raw, labels_path, md, judge, out, expected=8).rows
+    rows[0]["jw"] = "html"
+    judge.write_text(json.dumps(rows, ensure_ascii=False), encoding="utf-8")
+    with pytest.raises(ValueError, match="jw"):
+        run_judge([PB], raw, labels_path, md, judge, out, expected=8)
+
+
+def test_run_judge_rejects_a_file_whose_cells_differ_from_this_run(tmp_path):
+    raw, labels_path, md, judge, out = judge_paths(tmp_path)
+    rows = run_judge([PB], raw, labels_path, md, judge, out, expected=8).rows
+    judge.write_text(json.dumps(rows[1:], ensure_ascii=False), encoding="utf-8")
+    with pytest.raises(ValueError, match="다르다"):
+        run_judge([PB], raw, labels_path, md, judge, out, expected=8)
+
+
+def test_run_judge_reports_a_quote_missing_from_its_page(tmp_path):
+    raw, labels_path, md, judge, out = judge_paths(tmp_path)
+    lab = json.loads(labels_path.read_text(encoding="utf-8"))
+    lab[PB]["공급규모"] = cell("496", "없는 문장", 1)
+    labels_path.write_text(json.dumps(lab, ensure_ascii=False), encoding="utf-8")
+    got = run_judge([PB], raw, labels_path, md, judge, out, expected=8)
+    assert [r["field"] for r in got.bad] == ["공급규모"]
+    assert "근거 줄을 그 쪽에서 못 찾은 칸: 1" in out.read_text(encoding="utf-8")

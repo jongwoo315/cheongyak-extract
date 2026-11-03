@@ -15,7 +15,7 @@ from cheongyak_extract.pdf_fields import (
 from cheongyak_extract.pdf_text import TEXT_MODES
 from cheongyak_extract.pipeline import evaluate, run
 from cheongyak_extract.raw_check import check_raw
-from cheongyak_extract.truth_check import run_check
+from cheongyak_extract.truth_check import run_check, run_judge
 
 RAW_DIR = Path("data/raw")
 LLM_CACHE = Path("data/llm")
@@ -23,6 +23,7 @@ EXTRACT_NEW = Path("reports/extract-new.md")  # 재는 공고 20건의 맨 위 �
 EXTRACTORS = ("llm", "regex")
 PDF_LABELS = Path("labels/pdf-only-50.json")  # --set tune: 기존 50건 세 필드
 RESIDENT_LABELS = Path("labels/pdf-resident-30.json")  # --set test: 새 30건 거주지
+JUDGE_FILE = Path("labels/source-judge.json")  # judge-source: jw가 어느 쪽이 맞는지 채우는 파일
 
 
 def _new_pbnos() -> list[str]:
@@ -71,6 +72,14 @@ def main(argv: list[str] | None = None) -> int:
     )
     t.add_argument("--labels", type=Path, default=Path("labels/pdf-values-20.json"))
     t.add_argument("--out", type=Path, default=Path("reports/truth-check.md"), help="리포트 경로")
+    j = sub.add_parser(
+        "judge-source",
+        help="HTML 값과 PDF 값이 다른 칸을 jw가 판정할 파일로 만들고(있으면 읽고) 집계한다"
+        "(청약홈·OpenAI 요청 없음)",
+    )
+    j.add_argument("--labels", type=Path, default=Path("labels/pdf-values-20.json"))
+    j.add_argument("--judge", type=Path, default=JUDGE_FILE, help="jw가 채우는 판정 파일")
+    j.add_argument("--out", type=Path, default=Path("reports/source-judge.md"), help="리포트 경로")
     ep = sub.add_parser(
         "eval-pdf",
         help="PDF에만 있는 필드를 수동 정답으로 잰다(청약홈 요청 없음, OpenAI 호출). "
@@ -129,6 +138,21 @@ def main(argv: list[str] | None = None) -> int:
         bad = sum(c.ungrounded for c in checked.cells)
         print(f"정규화 뒤 같은 칸 {same}/{len(checked.cells)}, 근거를 못 찾은 칸 {bad}")
         return 0 if not bad else 1
+
+    if args.cmd == "judge-source":
+        try:
+            judged = run_judge(
+                _new_pbnos(), RAW_DIR, args.labels, EXTRACT_NEW, args.judge, args.out
+            )
+        except (ValueError, OSError, RuntimeError) as e:  # jw 값이 틀렸거나 파일·PDF를 못 읽는다
+            print(f"판정 파일을 만들 수 없다: {e}", file=sys.stderr)
+            return 1
+        pending = sum(r["jw"] is None for r in judged.rows)
+        print(
+            f"판정할 칸 {len(judged.rows)}/{judged.total}, 판정 전 {pending}, "
+            f"근거를 못 찾은 칸 {len(judged.bad)}"
+        )
+        return 0 if not judged.bad else 1
 
     if args.cmd == "check-raw":
         found = check_raw(RAW_DIR, args.out)

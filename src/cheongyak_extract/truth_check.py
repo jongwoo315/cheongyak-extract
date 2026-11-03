@@ -329,18 +329,10 @@ def render(checked: Checked, fields: tuple[str, ...] = FIELDS) -> str:
     return md
 
 
-def run_check(
-    pbnos: list[str],
-    raw_dir: Path,
-    labels_path: Path,
-    extract_new: Path,
-    out: Path,
-    expected: int = CELLS,
-) -> Checked:
-    """data/raw/<pbno>/의 detail.html·notice.pdf, 라벨 파일, extract_new(LLM 결과)만 읽는다.
-
-    요청은 없다. 정규식 결과는 data/raw/의 PDF 텍스트로 다시 뽑는다.
-    """
+def _load(
+    pbnos: list[str], raw_dir: Path, labels_path: Path, extract_new: Path, expected: int
+) -> tuple[list[Cell], dict[str, list[str]], dict[tuple[str, str], str | None]]:
+    """칸 목록, 공고별 쪽 텍스트, extract_new의 LLM 추출값을 파일에서만 읽는다."""
     labels = json.loads(labels_path.read_text(encoding="utf-8"))
     truths = {
         p: parse_truth((raw_dir / p / "detail.html").read_text(encoding="utf-8")) for p in pbnos
@@ -354,6 +346,22 @@ def run_check(
         raise ValueError(
             "틀리게 채운 칸 표를 두 방식으로 읽은 결과가 다르다(행이 빠졌거나 표 서식이 바뀌었다)"
         )
+    return cells, texts, values
+
+
+def run_check(
+    pbnos: list[str],
+    raw_dir: Path,
+    labels_path: Path,
+    extract_new: Path,
+    out: Path,
+    expected: int = CELLS,
+) -> Checked:
+    """data/raw/<pbno>/의 detail.html·notice.pdf, 라벨 파일, extract_new(LLM 결과)만 읽는다.
+
+    요청은 없다. 정규식 결과는 data/raw/의 PDF 텍스트로 다시 뽑는다.
+    """
+    cells, _, values = _load(pbnos, raw_dir, labels_path, extract_new, expected)
     regex, skipped = compare.regex_cells(pbnos, raw_dir)
     if skipped:  # 건너뛴 공고의 칸이 말없이 빠지면 합계 줄이 실제보다 작게 나온다
         raise ValueError(f"정규식이 건너뛴 공고가 있다: {skipped}")
@@ -428,7 +436,7 @@ def render_judge(
         md += "- `둘 다 아님`은 어느 쪽에도 세지 않는다\n"
     only = [f for f in PDF_FIELDS if f not in FIELDS]
     md += "\n## HTML에 없는 필드\n\n"
-    md += f"{', '.join(only)}은(는) HTML 쪽 값이 없다"
+    md += f"{len(only)}개 필드({', '.join(only)})는 HTML 쪽 값이 없다"
     md += f"(`truth.parse_truth`가 읽는 필드 {len(FIELDS)}개에 없다). "
     md += "그래서 위 판정할 칸에 들어갈 수 없고, PDF 쪽 숫자만 #152 리포트에서 옮긴다. "
     md += "정답은 jw가 아니라 구현 루프가 PDF를 읽고 적었다.\n\n"
@@ -437,3 +445,37 @@ def render_judge(
         [(f, n, ok, which, src) for f, n, ok, src, which in _PDF_ONLY_SOURCES],
     )
     return md
+
+
+class Judged(NamedTuple):
+    rows: list[dict]  # 판정할 칸(jw 칸까지)
+    total: int  # 대조한 전체 칸
+    bad: list[dict]  # 근거 줄을 그 쪽에서 못 찾은 칸
+
+
+def run_judge(
+    pbnos: list[str],
+    raw_dir: Path,
+    labels_path: Path,
+    extract_new: Path,
+    judge_path: Path,
+    out: Path,
+    expected: int = CELLS,
+) -> Judged:
+    """판정할 칸을 골라 judge_path에 없으면 만들고, 있으면 jw 칸을 그대로 읽어 리포트를 쓴다.
+
+    data/raw/, 라벨 파일, extract_new만 읽는다. 청약홈과 OpenAI에 요청하지 않는다.
+    """
+    cells, texts, values = _load(pbnos, raw_dir, labels_path, extract_new, expected)
+    picked = pick_cells(cells, values)
+    exists = judge_path.exists()
+    rows = merge_judge(picked, load_judge(judge_path) if exists else None)
+    if not exists:
+        judge_path.parent.mkdir(parents=True, exist_ok=True)
+        judge_path.write_text(
+            json.dumps(rows, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+        )
+    bad = ungrounded_judge(rows, texts)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(render_judge(rows, len(cells), bad), encoding="utf-8")
+    return Judged(rows, len(cells), bad)

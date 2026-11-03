@@ -340,3 +340,65 @@ def test_check_pdf_labels_makes_no_llm_and_exits_1_on_a_flagged_cell(monkeypatch
     assert "검사에 걸린 칸 1" in capsys.readouterr().out
     monkeypatch.setattr(cli, "check_pdf_labels", lambda *a: [clean])
     assert cli.main(["check-pdf-labels"]) == 0
+
+
+def judged(rows=(), total=160, bad=()):
+    from cheongyak_extract.truth_check import Judged
+
+    return Judged(list(rows), total, list(bad))
+
+
+def test_judge_source_command_makes_no_client_and_passes_paths(monkeypatch, capsys):
+    calls = []
+
+    def spy(pbnos, raw_dir, labels_path, md, judge, out):
+        calls.append((len(pbnos), *map(str, (raw_dir, labels_path, md, judge, out))))
+        row = {"jw": None}
+        return judged([row, row])
+
+    def no_network(*a, **k):
+        raise AssertionError("judge-source는 청약홈·OpenAI에 요청하지 않는다")
+
+    monkeypatch.setattr(cli, "run_judge", spy)
+    monkeypatch.setattr(cli, "make_client", no_network)
+    monkeypatch.setattr(cli, "make_ask", no_network)
+    monkeypatch.setattr(cli, "_new_pbnos", lambda: ["2026000001", "2026000002"])
+    assert cli.main(["judge-source"]) == 0
+    assert calls == [
+        (
+            2,
+            "data/raw",
+            "labels/pdf-values-20.json",
+            "reports/extract-new.md",
+            "labels/source-judge.json",
+            "reports/source-judge.md",
+        )
+    ]
+    assert capsys.readouterr().out.strip() == "판정할 칸 2/160, 판정 전 2, 근거를 못 찾은 칸 0"
+
+
+def test_judge_source_passes_the_out_path(monkeypatch):
+    seen = []
+    monkeypatch.setattr(cli, "_new_pbnos", lambda: ["2026000001"])
+    monkeypatch.setattr(cli, "run_judge", lambda *a: seen.append(str(a[-1])) or judged())
+    assert cli.main(["judge-source", "--out", "/tmp/x.md"]) == 0
+    assert seen == ["/tmp/x.md"]
+
+
+@pytest.mark.parametrize(
+    "error", [ValueError("jw"), FileNotFoundError("data/raw"), RuntimeError("pdf")]
+)
+def test_judge_source_exits_1_with_a_message_when_it_cannot_judge(monkeypatch, capsys, error):
+    def boom(*a, **k):
+        raise error
+
+    monkeypatch.setattr(cli, "_new_pbnos", lambda: ["2026000001"])
+    monkeypatch.setattr(cli, "run_judge", boom)
+    assert cli.main(["judge-source"]) == 1
+    assert "판정 파일을 만들 수 없다" in capsys.readouterr().err
+
+
+def test_judge_source_exits_1_when_a_quote_is_not_found(monkeypatch):
+    monkeypatch.setattr(cli, "_new_pbnos", lambda: ["2026000001"])
+    monkeypatch.setattr(cli, "run_judge", lambda *a: judged(bad=[{"jw": None}]))
+    assert cli.main(["judge-source"]) == 1
