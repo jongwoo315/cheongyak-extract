@@ -32,10 +32,17 @@ def model_from_env() -> str:
 class LlmAsk:
     """`Callable[[str], str]`. 부른 뒤 `last_usage`에 그 프롬프트의 토큰 수가 남는다."""
 
-    def __init__(self, model: str, cache_dir: Path, client: openai.OpenAI | None = None):
+    def __init__(
+        self,
+        model: str,
+        cache_dir: Path,
+        client: openai.OpenAI | None = None,
+        schema: dict = OUTPUT_SCHEMA,
+    ):
         self.model = model
         self.cache_dir = cache_dir
         self._client = client
+        self.schema = schema
         self.last_usage: Usage | None = None
 
     def __call__(self, prompt: str) -> str:
@@ -88,7 +95,7 @@ class LlmAsk:
                     "format": {
                         "type": "json_schema",
                         "name": "extraction",
-                        "schema": OUTPUT_SCHEMA,
+                        "schema": self.schema,
                         "strict": True,
                     }
                 },
@@ -113,5 +120,7 @@ class LlmAsk:
         )
 
 
-def make_ask(model: str, cache_dir: Path, client: openai.OpenAI | None = None) -> LlmAsk:
-    return LlmAsk(model, cache_dir, client)
+def make_ask(
+    model: str, cache_dir: Path, client: openai.OpenAI | None = None, schema: dict = OUTPUT_SCHEMA
+) -> LlmAsk:
+    return LlmAsk(model, cache_dir, client, schema)

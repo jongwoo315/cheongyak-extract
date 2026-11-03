@@ -1,4 +1,6 @@
+import hashlib
 import json
+from pathlib import Path
 
 import pytest
 
@@ -321,3 +323,64 @@ def test_prompt_keeps_the_developer_to_one_company_and_the_builder_to_the_column
     assert "이름 없는 칸" in builder and "나머지는 모두 시공사" in builder
     assert "같은 회사면 둘 다" in builder
     assert "월.일만 있으면" in prompt
+
+
+TWO = ex.FieldSet(
+    ("가필드", "나필드"),
+    {"가필드": "가 설명", "나필드": "나 설명"},
+    "다음 2개 필드를 찾는다.\n필드:\n",
+)
+
+
+def test_default_field_set_is_the_eight_fields_and_changes_neither_prompt_nor_schema():
+    assert ex.EIGHT_FIELDS.names == FIELDS
+    assert ex.EIGHT_FIELDS.schema == ex.OUTPUT_SCHEMA
+    assert build_prompt(PAGES, ex.EIGHT_FIELDS) == build_prompt(PAGES)
+    recorded = (Path(__file__).parent / "fixtures/llm/prompt.sha256").read_text().strip()
+    assert hashlib.sha256(build_prompt([], ex.EIGHT_FIELDS).encode()).hexdigest() == recorded
+    assert build_prompt(PAGES).startswith(ex.PROMPT_HEAD)
+
+
+def test_another_field_set_puts_only_its_fields_in_prompt_and_schema():
+    prompt = build_prompt(PAGES, TWO)
+    assert prompt.startswith(TWO.head)
+    assert "- 가필드: 가 설명\n- 나필드: 나 설명\n" in prompt
+    assert "공급위치" not in prompt
+    assert tuple(TWO.schema["properties"]) == TWO.names
+    assert TWO.schema["required"] == list(TWO.names)
+    assert TWO.schema["additionalProperties"] is False
+
+
+def test_extract_reads_only_the_keys_of_the_given_field_set():
+    body = {"가필드": cell("358세대", "일반분양 358세대", 2), "나필드": cell(None, None, None)}
+    out = extract(PAGES, lambda p: json.dumps(body, ensure_ascii=False), fields=TWO)
+    assert tuple(out.fields) == TWO.names
+    assert out.fields["가필드"].value == "358세대"
+    assert out.blanked == {"나필드": ex.NO_VALUE}
+
+
+def test_extract_with_another_field_set_reports_a_missing_key_and_bad_json():
+    out = extract(PAGES, lambda p: json.dumps({"가필드": cell(None, None, None)}), fields=TWO)
+    assert out.blanked["나필드"] == ex.NO_KEY
+    bad = ex.extract_rules(PAGES, lambda p: "[]", TWO)["C"]
+    assert tuple(bad.fields) == TWO.names and set(bad.blanked.values()) == {ex.BAD_JSON}
+
+
+def test_only_puts_just_that_page_in_the_prompt_with_its_real_page_number():
+    prompt = build_prompt(PAGES, TWO, only=2)
+    assert f"<page 2>\n{PAGES[1]}\n</page>\n" in prompt
+    assert "<page 1>" not in prompt and prompt.count("<page ") == 1
+    assert build_prompt(PAGES, TWO, only=None) == build_prompt(PAGES, TWO)
+
+
+def test_extract_with_only_asks_one_page_and_still_checks_the_evidence_on_that_page():
+    asked = []
+    body = {"가필드": cell("358세대", "일반분양 358세대", 2), "나필드": cell(None, None, None)}
+
+    def ask(prompt):
+        asked.append(prompt)
+        return json.dumps(body, ensure_ascii=False)
+
+    out = extract(PAGES, ask, fields=TWO, only=2)
+    assert asked == [build_prompt(PAGES, TWO, only=2)]
+    assert out.fields["가필드"].page == 2

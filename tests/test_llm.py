@@ -198,3 +198,10 @@ def test_response_that_keeps_reading_almost_none_of_the_prompt_ends_as_bad_respo
 def test_short_prompt_with_few_tokens_is_normal(tmp_path):
     client = SequenceClient([('{"ok": 1}', 3)])
     assert llm.make_ask("m1", tmp_path, client)("p") == '{"ok": 1}' and client.calls == 1
+
+
+def test_ask_sends_the_schema_it_was_made_with(tmp_path):
+    schema = {"type": "object", "properties": {}, "required": [], "additionalProperties": False}
+    client = FakeClient()
+    llm.make_ask("m1", tmp_path, client, schema)("p")
+    assert client.calls[0]["text"]["format"]["schema"] == schema

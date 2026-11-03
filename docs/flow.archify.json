@@ -1,0 +1,405 @@
+{
+ "schema_version": 2,
+ "diagram_type": "workflow",
+ "meta": {
+  "title": "cheongyak-extract 전체 흐름 — #152 PR #10",
+  "locale": "ko",
+  "quality_profile": "showcase",
+  "output": "workflow-152-full.html",
+  "repository": {
+   "url": "https://github.com/jongwoo315/cheongyak-extract",
+   "provider": "github",
+   "revision": "4ffa4dae0e84acd09f877b05ef316385224f06f2"
+  }
+ },
+ "lanes": [
+  {
+   "id": "collect",
+   "label": "수집 (fetch)"
+  },
+  {
+   "id": "eight",
+   "label": "8필드 추출·리포트 (run·eval)"
+  },
+  {
+   "id": "labels",
+   "label": "PDF 전용 3필드 정답 (측정)"
+  },
+  {
+   "id": "ask",
+   "label": "PDF 전용 3필드 추출 (eval-pdf)"
+  },
+  {
+   "id": "score",
+   "label": "채점·리포트 (eval-pdf)"
+  },
+  {
+   "id": "gone",
+   "label": "없어진 단계",
+   "variant": "exception"
+  }
+ ],
+ "mainPath": [
+  "fetch",
+  "pages",
+  "makelabels",
+  "check",
+  "block",
+  "onlyblock",
+  "state",
+  "report"
+ ],
+ "nodes": [
+  {
+   "id": "fetch",
+   "lane": "collect",
+   "col": 0,
+   "type": "external",
+   "label": "청약홈에서 공고 받기",
+   "sublabel": "상세 HTML + 공고문 PDF → data/raw",
+   "tag": "그대로",
+   "sources": [
+    {
+     "path": "src/cheongyak_extract/fetch.py",
+     "line": 148,
+     "label": "fetch_notices"
+    }
+   ]
+  },
+  {
+   "id": "pages",
+   "lane": "collect",
+   "col": 1,
+   "type": "backend",
+   "label": "PDF 쪽 텍스트",
+   "sublabel": "쪽마다 글자 뽑기",
+   "tag": "그대로",
+   "sources": [
+    {
+     "path": "src/cheongyak_extract/pdf_text.py",
+     "line": 19,
+     "label": "pages"
+    }
+   ]
+  },
+  {
+   "id": "eight",
+   "lane": "eight",
+   "col": 2,
+   "type": "cloud",
+   "label": "8필드 LLM 추출",
+   "sublabel": "공고 전체 텍스트",
+   "tag": "그대로",
+   "sources": [
+    {
+     "path": "src/cheongyak_extract/extract.py",
+     "line": 277,
+     "label": "extract"
+    }
+   ]
+  },
+  {
+   "id": "eightreport",
+   "lane": "eight",
+   "col": 3,
+   "type": "database",
+   "label": "청약홈 값과 비교·리포트",
+   "sublabel": "상세 HTML이 정답",
+   "tag": "그대로",
+   "sources": [
+    {
+     "path": "src/cheongyak_extract/truth.py",
+     "line": 19,
+     "label": "parse_truth"
+    },
+    {
+     "path": "src/cheongyak_extract/report.py",
+     "line": 87,
+     "label": "metrics"
+    }
+   ]
+  },
+  {
+   "id": "makelabels",
+   "lane": "labels",
+   "col": 1,
+   "type": "frontend",
+   "label": "정답 파일 만들기",
+   "sublabel": "[바뀜] 기존 50건 거주지 고침 + 새 30건",
+   "tag": "조건 바뀜",
+   "sources": [
+    {
+     "path": "labels/pdf-only-50.json",
+     "label": "기존 50건"
+    },
+    {
+     "path": "labels/pdf-resident-30.json",
+     "label": "새 30건"
+    }
+   ]
+  },
+  {
+   "id": "check",
+   "lane": "labels",
+   "col": 2,
+   "type": "security",
+   "label": "정답 검사",
+   "sublabel": "[바뀜] 근거 줄 위치 · 꼴 · 합 100",
+   "tag": "조건 바뀜",
+   "sources": [
+    {
+     "path": "src/cheongyak_extract/pdf_fields.py",
+     "line": 346,
+     "label": "check_labels"
+    }
+   ]
+  },
+  {
+   "id": "pick",
+   "lane": "labels",
+   "col": 0,
+   "type": "backend",
+   "label": "공고 고르기",
+   "sublabel": "[바뀜] tune 기존 50 · test 새 30",
+   "tag": "조건 바뀜",
+   "sources": [
+    {
+     "path": "src/cheongyak_extract/pdf_fields.py",
+     "line": 419,
+     "label": "_load"
+    },
+    {
+     "path": "src/cheongyak_extract/pdf_fields.py",
+     "line": 259,
+     "label": "pick_resident"
+    }
+   ]
+  },
+  {
+   "id": "block",
+   "lane": "ask",
+   "col": 2,
+   "type": "backend",
+   "label": "일반공급 ①지역 줄 찾기",
+   "sublabel": "[새로] 2순위 줄 아래 ■ ①지역",
+   "tag": "새로 생김",
+   "sources": [
+    {
+     "path": "src/cheongyak_extract/pdf_fields.py",
+     "line": 217,
+     "end_line": 256,
+     "label": "resident_block"
+    }
+   ]
+  },
+  {
+   "id": "onlyblock",
+   "lane": "ask",
+   "col": 3,
+   "type": "cloud",
+   "label": "거주지: 그 부분만 준다",
+   "sublabel": "[새로] 출처 묶음",
+   "tag": "새로 생김",
+   "sources": [
+    {
+     "path": "src/cheongyak_extract/pdf_fields.py",
+     "line": 709,
+     "end_line": 712,
+     "label": "묶음 분기"
+    }
+   ]
+  },
+  {
+   "id": "whole",
+   "lane": "ask",
+   "col": 4,
+   "type": "cloud",
+   "label": "거주지: PDF 전체를 준다",
+   "sublabel": "[바뀜] 표 → 문장 순서 설명 · 출처 전체",
+   "tag": "조건 바뀜",
+   "sources": [
+    {
+     "path": "src/cheongyak_extract/pdf_fields.py",
+     "line": 713,
+     "end_line": 715,
+     "label": "전체 분기"
+    }
+   ]
+  },
+  {
+   "id": "two",
+   "lane": "ask",
+   "col": 5,
+   "type": "cloud",
+   "label": "전매제한·신혼부부",
+   "sublabel": "[바뀜] 거주지 빼고 따로, tune만",
+   "tag": "범위 좁아짐",
+   "sources": [
+    {
+     "path": "src/cheongyak_extract/pdf_fields.py",
+     "line": 717,
+     "end_line": 721,
+     "label": "두 필드 호출"
+    }
+   ]
+  },
+  {
+   "id": "state",
+   "lane": "score",
+   "col": 4,
+   "type": "backend",
+   "label": "칸 상태 매기기",
+   "sublabel": "[바뀜] 같은 값·다른 값·비움, 0% 뺌",
+   "tag": "조건 바뀜",
+   "sources": [
+    {
+     "path": "src/cheongyak_extract/pdf_fields.py",
+     "line": 410,
+     "label": "cell_state"
+    },
+    {
+     "path": "src/cheongyak_extract/pdf_fields.py",
+     "line": 142,
+     "label": "normal_form"
+    }
+   ]
+  },
+  {
+   "id": "report",
+   "lane": "score",
+   "col": 5,
+   "type": "database",
+   "label": "점수 리포트",
+   "sublabel": "[바뀜] 출처별 수 · 합 100 아님",
+   "tag": "조건 바뀜",
+   "sources": [
+    {
+     "path": "src/cheongyak_extract/pdf_fields.py",
+     "line": 603,
+     "label": "render_eval"
+    },
+    {
+     "path": "reports/pdf-resident-test.md",
+     "label": "새 30건"
+    }
+   ]
+  },
+  {
+   "id": "old",
+   "lane": "gone",
+   "col": 3,
+   "type": "cloud",
+   "label": "세 필드 한 번에 묻기",
+   "sublabel": "[없어짐] PR #9 방식",
+   "tag": "없어짐",
+   "sources": [
+    {
+     "path": "src/cheongyak_extract/pdf_fields.py",
+     "line": 701,
+     "label": "_extract_notice"
+    }
+   ]
+  }
+ ],
+ "edges": [
+  {
+   "id": "e-fetch-pages",
+   "from": "fetch",
+   "to": "pages"
+  },
+  {
+   "id": "e-pages-eight",
+   "from": "pages",
+   "to": "eight",
+   "label": "run·eval"
+  },
+  {
+   "id": "e-eight-report",
+   "from": "eight",
+   "to": "eightreport"
+  },
+  {
+   "id": "e-pages-labels",
+   "from": "pages",
+   "to": "makelabels",
+   "label": "루프가 읽음"
+  },
+  {
+   "id": "e-pick-labels",
+   "from": "pick",
+   "to": "makelabels",
+   "label": "tune 50 · test 30"
+  },
+  {
+   "id": "e-labels-check",
+   "from": "makelabels",
+   "to": "check"
+  },
+  {
+   "id": "e-check-block",
+   "from": "check",
+   "to": "block",
+   "label": "공고마다"
+  },
+  {
+   "id": "e-block-labels",
+   "from": "block",
+   "to": "makelabels",
+   "label": "새 25칸 근거 줄",
+   "variant": "dashed",
+   "role": "branch"
+  },
+  {
+   "id": "e-block-only",
+   "from": "block",
+   "to": "onlyblock",
+   "label": "찾음",
+   "variant": "emphasis"
+  },
+  {
+   "id": "e-block-whole",
+   "from": "block",
+   "to": "whole",
+   "label": "못 찾음",
+   "variant": "dashed",
+   "role": "branch"
+  },
+  {
+   "id": "e-only-state",
+   "from": "onlyblock",
+   "to": "state"
+  },
+  {
+   "id": "e-whole-state",
+   "from": "whole",
+   "to": "state"
+  },
+  {
+   "id": "e-two-state",
+   "from": "two",
+   "to": "state"
+  },
+  {
+   "id": "e-state-report",
+   "from": "state",
+   "to": "report"
+  },
+  {
+   "id": "e-old-new",
+   "from": "old",
+   "to": "onlyblock",
+   "label": "이걸로 바뀜",
+   "variant": "dashed"
+  }
+ ],
+ "cards": [
+  {
+   "dot": "cyan",
+   "title": "읽는 법",
+   "items": [
+    "[새로]·[바뀜]은 반려된 PR #9 대비 이번 PR이 바꾼 단계다",
+    "정답 파일은 구현 루프가 PDF를 읽고 적었다. 새 30건 중 25칸은 근거 줄을 코드가 채웠다"
+   ]
+  }
+ ]
+}

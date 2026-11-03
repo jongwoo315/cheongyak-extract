@@ -6,6 +6,12 @@ from cheongyak_extract.compare import parse_pbnos
 from cheongyak_extract.fetch import fetch_notices, make_client
 from cheongyak_extract.llm import make_ask, model_from_env
 from cheongyak_extract.measure import measure_normalize
+from cheongyak_extract.pdf_fields import (
+    RESIDENT_BLOCK_SET,
+    TWO_FIELD_SET,
+    check_pdf_labels,
+    evaluate_pdf,
+)
 from cheongyak_extract.pdf_text import TEXT_MODES
 from cheongyak_extract.pipeline import evaluate, run
 from cheongyak_extract.raw_check import check_raw
@@ -15,6 +21,8 @@ RAW_DIR = Path("data/raw")
 LLM_CACHE = Path("data/llm")
 EXTRACT_NEW = Path("reports/extract-new.md")  # 재는 공고 20건의 맨 위 목록과 LLM 결과
 EXTRACTORS = ("llm", "regex")
+PDF_LABELS = Path("labels/pdf-only-50.json")  # --set tune: 기존 50건 세 필드
+RESIDENT_LABELS = Path("labels/pdf-resident-30.json")  # --set test: 새 30건 거주지
 
 
 def _new_pbnos() -> list[str]:
@@ -63,6 +71,17 @@ def main(argv: list[str] | None = None) -> int:
     )
     t.add_argument("--labels", type=Path, default=Path("labels/pdf-values-20.json"))
     t.add_argument("--out", type=Path, default=Path("reports/truth-check.md"), help="리포트 경로")
+    ep = sub.add_parser(
+        "eval-pdf",
+        help="PDF에만 있는 필드를 수동 정답으로 잰다(청약홈 요청 없음, OpenAI 호출). "
+        "tune=기존 50건 세 필드, test=새 30건 거주지만",
+    )
+    ep.add_argument("--set", dest="which", choices=("tune", "test"), required=True)
+    ep.add_argument("--out", type=Path, required=True, help="리포트 경로")
+    cl = sub.add_parser(
+        "check-pdf-labels", help="수동 정답 파일 둘(180칸)을 검사하고 요약을 쓴다(요청 없음)"
+    )
+    cl.add_argument("--out", type=Path, default=Path("reports/pdf-labels.md"), help="리포트 경로")
     sub.add_parser("measure-normalize", help="모의 추출값 24쌍의 일치 수를 정규화 전·후로 잰다")
     args = parser.parse_args(argv)
 
@@ -71,6 +90,34 @@ def main(argv: list[str] | None = None) -> int:
             RAW_DIR, Path("tests/fixtures/pdf_forms.json"), Path("reports/normalize.md")
         )
         return 0
+
+    if args.cmd == "check-pdf-labels":
+        try:
+            cells = check_pdf_labels(RAW_DIR, PDF_LABELS, RESIDENT_LABELS, args.out)
+        except (ValueError, OSError, RuntimeError) as e:
+            print(f"정답을 검사할 수 없다: {e}", file=sys.stderr)
+            return 1
+        bad = sum(bool(c.problems) for c in cells)
+        print(f"칸 {len(cells)}개, 정답 검사에 걸린 칸 {bad}개")
+        return 0 if not bad else 1
+
+    if args.cmd == "eval-pdf":
+        model = model_from_env()
+        ask = make_ask(model, LLM_CACHE, schema=TWO_FIELD_SET.schema)  # 전매제한·신혼부부
+        resident_ask = make_ask(model, LLM_CACHE, schema=RESIDENT_BLOCK_SET.schema)  # 거주지
+        labels = PDF_LABELS if args.which == "tune" else RESIDENT_LABELS
+        try:
+            result = evaluate_pdf(
+                args.which, RAW_DIR, labels, ask, args.out, resident_ask=resident_ask
+            )
+        except (ValueError, OSError, RuntimeError) as e:  # 정답 파일이 깨졌거나 PDF를 못 연다
+            print(f"잴 수 없다: {e}", file=sys.stderr)
+            return 1
+        print(
+            f"칸 {len(result.cells)}개, 건너뛴 공고 {len(result.skipped)}건, "
+            f"정답 검사에 걸린 칸 {len(result.label_problems)}개, 입력 토큰 {result.input_tokens:,}"
+        )
+        return 0 if not result.skipped and not result.label_problems else 1
 
     if args.cmd == "check-truth":
         try:
