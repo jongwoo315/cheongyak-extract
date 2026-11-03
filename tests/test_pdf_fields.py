@@ -247,6 +247,8 @@ def test_the_block_set_says_the_text_is_the_block_and_the_full_set_gives_rules_2
     full = pf.RESIDENT_FULL_SET.help[RESIDENT]
     assert full.index("지역우선 공급기준 표") < full.index("해당지역 거주자 우선 문장")
     assert "다자녀" in full and "읽지 않는다" in full
+    assert "한 줄, 길어도 연속된 두 줄" in full and "실제로 들어 있는 쪽의 번호" in full
+    assert "한 줄, 길어도" not in pf.RESIDENT_BLOCK_SET.help[RESIDENT]  # 묶음 쪽은 고치지 않았다
 
 
 @pytest.mark.parametrize(
