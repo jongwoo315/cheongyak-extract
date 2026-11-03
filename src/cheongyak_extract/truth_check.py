@@ -376,7 +376,8 @@ def render_judge(
     pending = sum(r["jw"] is None for r in rows)
     md = "# 청약홈 HTML과 공고문 PDF 중 어느 쪽 값이 맞는지\n\n"
     md += "HTML 값은 상세 HTML(`truth.parse_truth`), PDF 값은 `labels/pdf-values-20.json`, "
-    md += "LLM 값은 `reports/extract-new.md`의 틀리게 채운 칸 표다(표에 없으면 HTML 값과 같다고 본다). "
+    md += "LLM 값은 `reports/extract-new.md`의 틀리게 채운 칸 표다. "
+    md += "표에 없는 칸은 HTML 값과 같다고 본다. "
     md += "청약홈과 OpenAI에 요청하지 않았다.\n\n"
     md += "가정: 세 값이 모두 같은 칸은 두 방식 모두 맞다고 본다. "
     md += f"이 가정이 들어간 칸은 같은 칸 {same}/{total_cells}이다.\n\n"
