@@ -898,3 +898,36 @@ def test_without_a_block_the_note_says_which_of_rule_2_or_3_it_was_read_from(not
 def test_the_block_checks_do_not_apply_to_the_other_fields():
     raw = cell("3년", "전매제한 3년", 2)
     assert pf._problems(RESALE, raw, ["표지", "전매제한 3년"]) == ()
+
+
+def test_load_without_a_split_picks_the_old_50_for_tune_and_30_new_ones_outside_them_for_test(
+    tmp_path, monkeypatch
+):
+    # 운영 경로: split을 안 주면 eligible 목록에서 코드가 직접 뽑는다(다른 테스트는 split을 넘긴다)
+    eligible = [f"N{i:03d}" for i in range(90)]
+    monkeypatch.setattr(pf, "pdf_pages", lambda path: ["쪽"])
+    first = pf.pick(eligible)
+    second = pf.pick_resident(eligible, [*first.tune, *first.test])
+    assert len(first.tune) + len(first.test) == 50 and len(second.test) == 30
+    assert not set(second.test) & {*first.tune, *first.test}
+
+    def write(name, body):
+        path = tmp_path / name
+        path.write_text(json.dumps(body, ensure_ascii=False), encoding="utf-8")
+        return path
+
+    tune_file = write(
+        "tune.json",
+        {
+            "tune": first.tune,
+            "test": first.test,
+            "cells": {p: {f: null() for f in pf.PDF_FIELDS} for p in [*first.tune, *first.test]},
+        },
+    )
+    test_file = write(
+        "test.json", {"test": second.test, "cells": {p: {RESIDENT: null()} for p in second.test}}
+    )
+    _, split, _, cells = pf._load(tmp_path, tune_file, "tune", None, None, eligible)
+    assert split == first and len(cells) == 150
+    _, split, _, cells = pf._load(tmp_path, test_file, "test", None, None, eligible)
+    assert split == second and len(cells) == 30 and {c.field for c in cells} == {RESIDENT}
