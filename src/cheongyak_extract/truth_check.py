@@ -161,7 +161,10 @@ def pick_cells(cells: list[Cell], llm: dict[tuple[str, str], str | None]) -> lis
     """HTML 값·PDF 값·LLM 값이 정규화 뒤 하나라도 다른 칸을 판정 파일 꼴로 낸다.
 
     llm은 틀리게 채운 칸 표의 추출값이다. 표에 없는 칸은 HTML 값과 같다고 본다.
+    llm에 대조한 칸에 없는 키가 있으면 그 행이 말없이 빠지므로 에러를 낸다.
     """
+    if extra := sorted(set(llm) - {(c.pbno, c.field) for c in cells}):
+        raise ValueError(f"틀리게 채운 칸 표에 대조한 {len(cells)}칸에 없는 칸이 있다: {extra}")
     out = []
     for c in cells:
         value = llm.get((c.pbno, c.field), c.html)

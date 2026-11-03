@@ -332,6 +332,13 @@ def test_pick_cells_treats_a_missing_llm_row_as_the_html_value():
     assert pick_cells(cells, {}) == []
 
 
+def test_pick_cells_raises_on_an_llm_row_for_a_cell_that_is_not_compared():
+    # 표에 필드 이름이 바뀐 행이 남아 있으면 그 행이 판정 파일에서 말없이 빠진다
+    cells = run(labels())
+    with pytest.raises(ValueError, match="3"):
+        pick_cells(cells, {(PB, "없는필드"): "x"})
+
+
 def test_pick_cells_normalizes_before_comparing():
     # LLM이 표기만 다르게 채운 칸(2026년 10월)은 같은 칸이다
     cells = run(labels())
