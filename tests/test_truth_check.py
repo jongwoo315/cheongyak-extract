@@ -660,6 +660,12 @@ def test_render_judge_counts_dropped_cells_in_the_same_cells_not_in_the_verdict_
     assert "- HTML 쪽이 맞는 값을 가진 칸: 159/160" in md  # 157 + HTML 1 + 둘 다 1
 
 
+def test_render_judge_shows_a_dropped_cell_without_jw_as_pending():
+    md = render_judge(rows3(), 160, [], [judge_cell(field="공급위치", jw=None)])
+    sec = md.split("## 정규화로 같아져 판정할 칸에서 빠진 칸")[1].split("\n## ")[0]
+    assert "| 공급위치 |" in sec and "판정 전 |" in sec
+
+
 def test_render_judge_without_dropped_cells_says_none():
     md = render_judge(rows3(), 160, [])
     sec = md.split("## 정규화로 같아져 판정할 칸에서 빠진 칸")[1].split("\n## ")[0]

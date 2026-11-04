@@ -149,7 +149,7 @@ normalize + report (필드별 지표 표)     →  stdout + reports/*.md
   [reports/extract-tune.md](reports/extract-tune.md)(프롬프트 수정 기록, 다듬는 공고 29건),
   [reports/extract-new.md](reports/extract-new.md)(고정 뒤 받은 공고 20건)
 - 정규식 baseline(#150): 다듬는 29건으로 규칙을 만들고 고정한 뒤 재는 20건을 한 번 쟀다.
-  재는 20건 160칸에서 정규식은 맞음 112(70.0%)·비움 34(21.2%)·다른 값으로 채움 14(8.8%), LLM(C안)은 맞음 154(96.2%)·비움 0·다른 값으로 채움 6(3.8%)이다.
+  재는 20건 160칸에서 정규식은 맞음 112(70.0%)·비움 34(21.2%)·다른 값으로 채움 14(8.8%), LLM(C안)은 맞음 154(96.2%)·비움 0·다른 값으로 채움 6(3.8%)이다. LLM 쪽 숫자는 `reports/extract-new.md`(바꾸기 전 정규화로 채점)에서 읽은 값이라, 새 정규화로 다시 맞추면 공급위치 2칸(2026000443·2026000437)이 맞은 칸이 되어 LLM이 154가 아니라 156이다.
   표 위치를 세야 하는 당첨자 발표일(정규식 4칸 대 LLM 20칸)·계약일(9 대 20)·시공사(10 대 19)에서 갈린다.
   [reports/regex-vs-llm.md](reports/regex-vs-llm.md)(비교 표), [reports/regex-tune.md](reports/regex-tune.md)(규칙 수정 기록),
   [reports/regex-new.md](reports/regex-new.md)(재는 20건), [reports/regex-more.md](reports/regex-more.md)(남은 101건 중 100건, 정규식만. 1건은 스캔 PDF라 건너뜀)
