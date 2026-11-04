@@ -11,7 +11,7 @@
 
 | # | 심각도 | 위치 | 내용 | 처리 |
 | --- | --- | --- | --- | --- |
-| 1 | Important | `src/cheongyak_extract/truth_check.py:278` | 정규화로 빠진 칸의 jw 판정이 `둘 다`가 아니어도(`HTML`·`PDF`·`둘 다 아님`) 같은 칸으로 세어 방식별 합계가 jw 판정과 조용히 어긋난다. 지금 파일의 빠진 칸 3개는 모두 `둘 다`라 숫자(159/160)는 맞다 | fix `b25e43a` |
+| 1 | Important | `src/cheongyak_extract/truth_check.py:285` | 정규화로 빠진 칸의 jw 판정이 `둘 다`가 아니어도(`HTML`·`PDF`·`둘 다 아님`) 같은 칸으로 세어 방식별 합계가 jw 판정과 조용히 어긋난다. 지금 파일의 빠진 칸 3개는 모두 `둘 다`라 숫자(159/160)는 맞다 | fix `b25e43a` |
 | 2 | Important | `src/cheongyak_extract/__main__.py:154` | 빠진 칸 중 jw가 안 본 칸(`판정 전`)이 CLI 한 줄의 `판정 전` 개수에 안 들어간다 | push-back — 빠진 칸은 정규화로 세 값이 같아진 칸이라 판정할 대상이 아니다. 리포트의 빠진 칸 절에는 `판정 전`으로 표시되고(`test_render_judge_shows_a_dropped_cell_without_jw_as_pending`), 합계를 막는 `판정 전` 배너는 판정할 칸 기준이어야 한다. 정규화가 과하게 합쳤을 때의 위험은 #1 fix가 jw 판정이 있는 쪽을 막는다 |
 | 3 | Suggestion | `src/cheongyak_extract/truth_check.py:562` | 판정 파일이 없을 때 쓰는 쓰기가 `atomic`하지 않다(쓰는 도중 끊기면 잘린 JSON이 남는다) | won't-fix — 이 PR이 바꾼 줄이 아니고 혼자 쓰는 CLI다. 잘린 파일은 다음 실행이 `JSONDecodeError`로 멈춰 조용히 넘어가지 않는다 |
 | 4 | Suggestion | `reports/regex-vs-llm.md:3` | 정규식 숫자는 새 정규화, LLM 숫자는 이전 정규화 기준이라 리포트만 읽으면 공급위치 18 대 18, 「정규식 맞음 LLM 틀림 2」가 섞여 읽힌다. 이 사실은 README와 `docs/decision-source.md`에만 있다 | defer — LLM 리포트를 다시 만들지 않는 것이 plan의 이번에 안 하는 것이고, 이 리포트의 머리말은 `compare` 코드가 만든다. 리포트 머리말에 한 줄 더하는 것은 #183 밖의 `compare` 수정이라 후속에서 다룬다 |
