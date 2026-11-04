@@ -483,6 +483,20 @@ def test_dropped_judge_returns_the_filed_rows_that_were_not_picked():
     assert got[0] is filed[1]  # jw가 쓴 행을 그대로 돌려준다
 
 
+@pytest.mark.parametrize("verdict", ["HTML", "PDF", "둘 다 아님"])
+def test_dropped_judge_raises_when_jw_said_a_side_was_wrong(verdict):
+    # 세 값이 같아졌는데 jw가 한쪽이 틀렸다고 적었으면 같은 칸으로 세면 합계가 틀린다
+    c = same_cell("시공사")
+    with pytest.raises(ValueError, match=f"시공사.*{verdict}"):
+        dropped_judge([c], {}, [], [judge_cell(jw=verdict, **row_of(c))])
+
+
+def test_dropped_judge_keeps_a_cell_jw_has_not_judged():
+    c = same_cell("시공사")
+    got = dropped_judge([c], {}, [], [judge_cell(jw=None, **row_of(c))])
+    assert [r["jw"] for r in got] == [None]
+
+
 def test_dropped_judge_without_a_file_has_nothing_to_drop():
     assert dropped_judge([same_cell("시공사")], {}, [], None) == []
 
@@ -636,7 +650,7 @@ def dropped2():
         judge_cell(
             pbno="2026000443", field="공급위치", html="A 일원 B", pdf="A 일원 (B)", jw="둘 다"
         ),
-        judge_cell(pbno="2026000438", field="공급위치", html="C(D)", pdf="C, (D)", jw="HTML"),
+        judge_cell(pbno="2026000438", field="공급위치", html="C(D)", pdf="C, (D)", jw="둘 다"),
     ]
 
 
@@ -644,7 +658,7 @@ def test_render_judge_lists_dropped_cells_with_values_and_jw():
     md = render_judge(rows3(), 160, [], dropped2())
     sec = md.split("## 정규화로 같아져 판정할 칸에서 빠진 칸")[1].split("\n## ")[0]
     assert "| 2026000443 | 공급위치 | A 일원 B | A 일원 (B) | 둘 다 |" in sec
-    assert "| 2026000438 | 공급위치 | C(D) | C, (D) | HTML |" in sec
+    assert "| 2026000438 | 공급위치 | C(D) | C, (D) | 둘 다 |" in sec
     assert "세 값이 같은 칸으로 센다" in sec
 
 
@@ -656,7 +670,7 @@ def test_render_judge_counts_dropped_cells_in_the_same_cells_not_in_the_verdict_
     md = render_judge(rows, 160, [], dropped2())
     assert "- 같은 칸 157/160 (98.1%)" in md
     assert "그중 판정 파일에서 빠진 칸 2" in md
-    assert "| 둘 다 | 1 |" in md  # 빠진 칸의 jw(둘 다 1·HTML 1)는 jw 판정별 칸 수에 섞지 않는다
+    assert "| 둘 다 | 1 |" in md  # 빠진 칸의 jw(둘 다 2)는 jw 판정별 칸 수에 섞지 않는다
     assert "- HTML 쪽이 맞는 값을 가진 칸: 159/160" in md  # 157 + HTML 1 + 둘 다 1
 
 

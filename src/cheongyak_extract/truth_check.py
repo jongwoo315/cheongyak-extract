@@ -266,7 +266,8 @@ def dropped_judge(
     """파일에는 있는데 이번에 안 고른 칸. 정규화로 HTML·PDF·LLM 값이 같아져 판정할 칸에서 빠졌다.
 
     파일의 행을 그대로 돌려주고 파일은 고치지 않는다(jw 판정과 메모를 지우지 않는다).
-    대조한 칸에 없는 칸이거나 jw가 본 값이 지금 읽은 값과 다르면 에러다.
+    에러가 나는 칸: 이번에 대조한 칸에 없는 칸, jw가 본 값이 지금 읽은 값과 다른 칸,
+    jw 판정이 `둘 다`도 비움도 아닌 칸(세 값이 같은데 한쪽이 틀렸다는 판정이라 합계가 틀린다).
     """
     if filed is None:
         return []
@@ -281,6 +282,11 @@ def dropped_judge(
         if c is None:
             raise ValueError(f"{r['pbno']} {r['field']}: 판정 파일의 칸이 이번에 대조한 칸에 없다")
         _changed(r, _row(c, llm.get(_key(r), c.html)))
+        if r["jw"] not in (None, "둘 다"):
+            raise ValueError(
+                f"{r['pbno']} {r['field']}: 정규화로 세 값이 같아졌는데 jw 판정이 {r['jw']!r}이다. "
+                "같은 칸으로 세면 합계가 틀리니 jw가 다시 본다"
+            )
         out.append(r)
     return out
 
