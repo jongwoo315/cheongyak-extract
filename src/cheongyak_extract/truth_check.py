@@ -2,12 +2,14 @@
 
 import json
 import re
+from collections import Counter
 from pathlib import Path
 from typing import NamedTuple
 
 from cheongyak_extract import compare
 from cheongyak_extract.extract import FIELDS, grounded
 from cheongyak_extract.normalize import normalize
+from cheongyak_extract.pdf_fields import PDF_FIELDS
 from cheongyak_extract.pdf_text import pages
 from cheongyak_extract.report import _cell
 from cheongyak_extract.truth import parse_truth
@@ -148,6 +150,130 @@ def reread(cells: list[Cell], extracted: dict[tuple[str, str], str | None]) -> l
     return out
 
 
+# ---- #153: 어느 쪽이 맞는지 jw가 판정할 칸 ----
+
+JUDGES = ("HTML", "PDF", "둘 다", "둘 다 아님")  # jw 칸이 받는 값. 비어 있으면 null
+PENDING = "판정 전"
+_JUDGE_KEYS = {"pbno", "field", "html", "pdf", "quote", "page", "llm", "jw", "jw_note"}
+
+
+def pick_cells(cells: list[Cell], llm: dict[tuple[str, str], str | None]) -> list[dict]:
+    """HTML 값·PDF 값·LLM 값이 정규화 뒤 하나라도 다른 칸을 판정 파일 꼴로 낸다.
+
+    llm은 틀리게 채운 칸 표의 추출값이다. 표에 없는 칸은 HTML 값과 같다고 본다.
+    llm에 대조한 칸에 없는 키가 있으면 그 행이 말없이 빠지므로 에러를 낸다.
+    """
+    if extra := sorted(set(llm) - {(c.pbno, c.field) for c in cells}):
+        raise ValueError(f"틀리게 채운 칸 표에 대조한 {len(cells)}칸에 없는 칸이 있다: {extra}")
+    out = []
+    for c in cells:
+        value = llm.get((c.pbno, c.field), c.html)
+        if len({normalize(c.field, v) for v in (c.html, c.pdf, value)}) == 1:
+            continue
+        out.append(
+            {
+                "pbno": c.pbno,
+                "field": c.field,
+                "html": c.html,
+                "pdf": c.pdf,
+                "quote": c.quote,
+                "page": c.page,
+                "llm": value,
+                "jw": None,
+                "jw_note": None,
+            }
+        )
+    return out
+
+
+def _check_judge_row(i: int, row: object) -> dict:
+    where = f"판정 파일 {i + 1}번째 칸"
+    if not isinstance(row, dict) or set(row) != _JUDGE_KEYS:
+        raise ValueError(f"{where}: {sorted(_JUDGE_KEYS)} 키를 모두 가진 객체여야 한다")
+    where = f"{row['pbno']} {row['field']}"
+    if not all(isinstance(row[k], str) for k in ("pbno", "field")):
+        raise ValueError(f"{where}: pbno·field는 문자열이어야 한다")
+    for k in ("html", "pdf", "quote", "llm", "jw_note"):
+        if row[k] is not None and not isinstance(row[k], str):
+            raise ValueError(f"{where}: {k}는 문자열이거나 null이어야 한다")
+    page = row["page"]
+    if page is not None and (not isinstance(page, int) or isinstance(page, bool) or page < 1):
+        raise ValueError(f"{where}: page는 1 이상의 정수이거나 null이어야 한다")
+    jw = row["jw"]
+    if jw is not None and not (isinstance(jw, str) and jw in JUDGES):
+        raise ValueError(
+            f"{where}: jw는 {' / '.join(JUDGES)} 중 하나이거나 null이어야 한다: {jw!r}"
+        )
+    return row
+
+
+def load_judge(path: Path) -> list[dict]:
+    """판정 파일을 읽고 칸마다 형식과 jw 값을 검사한다."""
+    raw = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(raw, list):
+        raise ValueError("판정 파일의 맨 위는 칸 목록이어야 한다")
+    return [_check_judge_row(i, row) for i, row in enumerate(raw)]
+
+
+def _key(r: dict) -> tuple[str, str]:
+    return r["pbno"], r["field"]
+
+
+def merge_judge(picked: list[dict], filed: list[dict] | None) -> list[dict]:
+    """이번에 고른 칸에 파일에 적힌 jw·jw_note를 얹는다. 파일이 없으면 고른 칸 그대로다.
+
+    jw가 채운 칸을 덮어쓰지 않는다. 고른 칸이 파일과 다르거나, 같은 칸의 HTML 값·PDF 값·근거 줄·쪽·
+    LLM 값이 jw가 본 값과 다르면 말없이 붙이지 않고 에러를 낸다.
+    """
+    if filed is None:
+        return picked
+    seen = Counter(_key(r) for r in filed)
+    if dup := sorted(f"{p} {f}" for (p, f), n in seen.items() if n > 1):
+        raise ValueError(f"판정 파일에 같은 칸이 두 번 있다: {dup}")
+    now, before = {_key(r) for r in picked}, {_key(r) for r in filed}
+    if now != before:
+        diff = sorted(f"{p} {f}" for p, f in now ^ before)
+        raise ValueError(f"판정 파일의 칸이 이번에 고른 칸과 다르다: {diff}")
+    saved = {_key(r): r for r in filed}
+    for r in picked:
+        for k in ("html", "pdf", "quote", "page", "llm"):
+            if saved[_key(r)][k] != r[k]:
+                raise ValueError(
+                    f"{r['pbno']} {r['field']}: jw가 본 {k} 값이 이번에 읽은 값과 다르다. "
+                    f"jw 판정을 새 값에 붙이지 않는다(파일 {saved[_key(r)][k]!r}, 이번 {r[k]!r})"
+                )
+    return [{**r, "jw": saved[_key(r)]["jw"], "jw_note": saved[_key(r)]["jw_note"]} for r in picked]
+
+
+def missing_material(row: dict) -> bool:
+    """jw가 판정할 재료(HTML 값·PDF 값·근거 줄·쪽·LLM 값) 중 비어 있는 것이 있다."""
+    return any(row[k] is None for k in ("html", "pdf", "quote", "page", "llm"))
+
+
+def ungrounded_judge(rows: list[dict], texts: dict[str, list[str]]) -> list[dict]:
+    """근거 줄이 있는데 적힌 쪽 텍스트에서 못 찾은 칸. 근거 줄 자체가 없는 칸은 여기 안 센다."""
+    out = []
+    for r in rows:
+        if r["quote"] is None:
+            continue
+        body = texts[r["pbno"]]
+        if not (r["page"] is not None and 1 <= r["page"] <= len(body)):
+            out.append(r)
+        elif not grounded(r["quote"], body[r["page"] - 1]):
+            out.append(r)
+    return out
+
+
+# #152 리포트에서 옮긴 숫자. (필드, 정답 있는 칸, LLM이 맞힌 칸, 출처, 대상).
+# 정답은 구현 루프가 PDF를 읽고 적었다
+_PDF_ONLY_SOURCES = (
+    ("전매제한 기간", 47, 47, "reports/pdf-fields-tune-2.md", "기존 50건"),
+    ("거주지 우선 비율", 49, 48, "reports/pdf-fields-tune-2.md", "기존 50건"),
+    ("거주지 우선 비율", 30, 29, "reports/pdf-resident-test.md", "새 30건"),
+    ("신혼부부 소득 기준", 46, 42, "reports/pdf-fields-tune-2.md", "기존 50건"),
+)
+
+
 def _pct(n: int, total: int) -> str:
     return f"{n}/{total} ({n / total:.1%})" if total else f"{n}/{total} (—)"
 
@@ -218,18 +344,10 @@ def render(checked: Checked, fields: tuple[str, ...] = FIELDS) -> str:
     return md
 
 
-def run_check(
-    pbnos: list[str],
-    raw_dir: Path,
-    labels_path: Path,
-    extract_new: Path,
-    out: Path,
-    expected: int = CELLS,
-) -> Checked:
-    """data/raw/<pbno>/의 detail.html·notice.pdf, 라벨 파일, extract_new(LLM 결과)만 읽는다.
-
-    요청은 없다. 정규식 결과는 data/raw/의 PDF 텍스트로 다시 뽑는다.
-    """
+def _load(
+    pbnos: list[str], raw_dir: Path, labels_path: Path, extract_new: Path, expected: int
+) -> tuple[list[Cell], dict[str, list[str]], dict[tuple[str, str], str | None]]:
+    """칸 목록, 공고별 쪽 텍스트, extract_new의 LLM 추출값을 파일에서만 읽는다."""
     labels = json.loads(labels_path.read_text(encoding="utf-8"))
     truths = {
         p: parse_truth((raw_dir / p / "detail.html").read_text(encoding="utf-8")) for p in pbnos
@@ -243,6 +361,22 @@ def run_check(
         raise ValueError(
             "틀리게 채운 칸 표를 두 방식으로 읽은 결과가 다르다(행이 빠졌거나 표 서식이 바뀌었다)"
         )
+    return cells, texts, values
+
+
+def run_check(
+    pbnos: list[str],
+    raw_dir: Path,
+    labels_path: Path,
+    extract_new: Path,
+    out: Path,
+    expected: int = CELLS,
+) -> Checked:
+    """data/raw/<pbno>/의 detail.html·notice.pdf, 라벨 파일, extract_new(LLM 결과)만 읽는다.
+
+    요청은 없다. 정규식 결과는 data/raw/의 PDF 텍스트로 다시 뽑는다.
+    """
+    cells, _, values = _load(pbnos, raw_dir, labels_path, extract_new, expected)
     regex, skipped = compare.regex_cells(pbnos, raw_dir)
     if skipped:  # 건너뛴 공고의 칸이 말없이 빠지면 합계 줄이 실제보다 작게 나온다
         raise ValueError(f"정규식이 건너뛴 공고가 있다: {skipped}")
@@ -251,3 +385,115 @@ def run_check(
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(render(checked), encoding="utf-8")
     return checked
+
+
+def render_judge(
+    rows: list[dict],
+    total_cells: int,
+    bad: list[dict],
+    fields: tuple[str, ...] = FIELDS,
+) -> str:
+    """rows는 jw 칸까지 채운 판정할 칸, bad는 근거 줄을 못 찾은 칸이다."""
+    same = total_cells - len(rows)
+    done = {j: sum(r["jw"] == j for r in rows) for j in JUDGES}
+    pending = sum(r["jw"] is None for r in rows)
+    md = "# 청약홈 HTML과 공고문 PDF 중 어느 쪽 값이 맞는지\n\n"
+    md += "HTML 값은 상세 HTML(`truth.parse_truth`), PDF 값은 `labels/pdf-values-20.json`, "
+    md += "LLM 값은 `reports/extract-new.md`의 틀리게 채운 칸 표다. "
+    md += "표에 없는 칸은 HTML 값과 같다고 본다. "
+    md += "청약홈과 OpenAI에 요청하지 않았다.\n\n"
+    md += "가정: 세 값이 모두 같은 칸은 두 방식 모두 맞다고 본다. "
+    md += f"이 가정이 들어간 칸은 같은 칸 {same}/{total_cells}이다.\n\n"
+    if pending:
+        md += f"**jw 판정 전.** `판정 전` {pending}칸이 남아 있어 방식별 합계를 쓰지 않는다. "
+        md += "`labels/source-judge.json`의 `jw` 칸을 채운 뒤 `judge-source`를 다시 돌린다.\n\n"
+    md += f"- 같은 칸 {_pct(same, total_cells)}\n"
+    md += f"- 판정할 칸 {_pct(len(rows), total_cells)}\n"
+    md += (
+        f"- 재료(HTML 값·PDF 값·근거 줄·쪽·LLM 값)가 빠진 칸: {sum(map(missing_material, rows))}\n"
+    )
+    md += f"- 근거 줄을 그 쪽에서 못 찾은 칸: {len(bad)}\n\n"
+    md += "## 판정할 칸\n\n"
+    md += (
+        _table(
+            ("공고", "필드", "HTML 값", "PDF 값", "쪽", "LLM 값", "jw 판정"),
+            [
+                (
+                    r["pbno"],
+                    r["field"],
+                    r["html"],
+                    r["pdf"],
+                    r["page"],
+                    r["llm"],
+                    r["jw"] or PENDING,
+                )
+                for r in rows
+            ],
+        )
+        if rows
+        else "없음\n"
+    )
+    md += "\n필드별 판정할 칸:\n\n"
+    md += _table(("필드", "판정할 칸"), [(f, sum(r["field"] == f for r in rows)) for f in fields])
+    if bad:
+        md += "\n근거 줄을 그 쪽에서 못 찾은 칸:\n\n"
+        md += _table(
+            ("공고", "필드", "쪽", "quote"),
+            [(r["pbno"], r["field"], r["page"], r["quote"]) for r in bad],
+        )
+    md += "\n## jw 판정별 칸 수\n\n"
+    md += _table(("jw 판정", "칸 수"), [*done.items(), (PENDING, pending)])
+    if bad and not pending:
+        md += "\n근거 줄을 못 찾은 칸이 있어 방식별 합계를 쓰지 않는다. "
+        md += "위 표의 쪽과 quote를 고친 뒤 다시 돌린다.\n"
+    if not pending and not bad:
+        md += "\n방식별로 맞는 값을 가진 칸(같은 칸 + 그 방식이거나 `둘 다`로 판정한 칸):\n\n"
+        for name in ("HTML", "PDF"):
+            n = same + done[name] + done["둘 다"]
+            md += f"- {name} 쪽이 맞는 값을 가진 칸: {_pct(n, total_cells)}\n"
+        md += "- `둘 다 아님`은 어느 쪽에도 세지 않는다\n"
+    only = [f for f in PDF_FIELDS if f not in FIELDS]
+    md += "\n## HTML에 없는 필드\n\n"
+    md += f"{len(only)}개 필드({', '.join(only)})는 HTML 쪽 값이 없다"
+    md += f"(`truth.parse_truth`가 읽는 필드 {len(FIELDS)}개에 없다). "
+    md += "그래서 위 판정할 칸에 들어갈 수 없고, PDF 쪽 숫자만 #152 리포트에서 옮긴다. "
+    md += "정답은 jw가 아니라 구현 루프가 PDF를 읽고 적었다.\n\n"
+    md += _table(
+        ("필드", "정답 있는 칸", "LLM이 맞힌 칸", "대상", "출처"),
+        [(f, n, ok, which, src) for f, n, ok, src, which in _PDF_ONLY_SOURCES],
+    )
+    return md
+
+
+class Judged(NamedTuple):
+    rows: list[dict]  # 판정할 칸(jw 칸까지)
+    total: int  # 대조한 전체 칸
+    bad: list[dict]  # 근거 줄을 그 쪽에서 못 찾은 칸
+
+
+def run_judge(
+    pbnos: list[str],
+    raw_dir: Path,
+    labels_path: Path,
+    extract_new: Path,
+    judge_path: Path,
+    out: Path,
+    expected: int = CELLS,
+) -> Judged:
+    """판정할 칸을 골라 judge_path에 없으면 만들고, 있으면 jw 칸을 그대로 읽어 리포트를 쓴다.
+
+    data/raw/, 라벨 파일, extract_new만 읽는다. 청약홈과 OpenAI에 요청하지 않는다.
+    """
+    cells, texts, values = _load(pbnos, raw_dir, labels_path, extract_new, expected)
+    picked = pick_cells(cells, values)
+    exists = judge_path.exists()
+    rows = merge_judge(picked, load_judge(judge_path) if exists else None)
+    if not exists:
+        judge_path.parent.mkdir(parents=True, exist_ok=True)
+        judge_path.write_text(
+            json.dumps(rows, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+        )
+    bad = ungrounded_judge(rows, texts)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(render_judge(rows, len(cells), bad), encoding="utf-8")
+    return Judged(rows, len(cells), bad)
