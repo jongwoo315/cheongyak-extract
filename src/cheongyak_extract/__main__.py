@@ -150,7 +150,8 @@ def main(argv: list[str] | None = None) -> int:
             return 1
         pending = sum(r["jw"] is None for r in judged.rows)
         print(
-            f"판정할 칸 {len(judged.rows)}/{judged.total}, 판정 전 {pending}, "
+            f"판정할 칸 {len(judged.rows)}/{judged.total}, 정규화로 빠진 칸 {len(judged.dropped)}, "
+            f"판정 전 {pending}, "
             f"재료가 빠진 칸 {sum(map(missing_material, judged.rows))}, "
             f"근거를 못 찾은 칸 {len(judged.bad)}"
         )

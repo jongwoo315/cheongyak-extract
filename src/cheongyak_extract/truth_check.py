@@ -157,6 +157,20 @@ PENDING = "판정 전"
 _JUDGE_KEYS = {"pbno", "field", "html", "pdf", "quote", "page", "llm", "jw", "jw_note"}
 
 
+def _row(c: Cell, llm: str | None) -> dict:
+    return {
+        "pbno": c.pbno,
+        "field": c.field,
+        "html": c.html,
+        "pdf": c.pdf,
+        "quote": c.quote,
+        "page": c.page,
+        "llm": llm,
+        "jw": None,
+        "jw_note": None,
+    }
+
+
 def pick_cells(cells: list[Cell], llm: dict[tuple[str, str], str | None]) -> list[dict]:
     """HTML 값·PDF 값·LLM 값이 정규화 뒤 하나라도 다른 칸을 판정 파일 꼴로 낸다.
 
@@ -170,19 +184,7 @@ def pick_cells(cells: list[Cell], llm: dict[tuple[str, str], str | None]) -> lis
         value = llm.get((c.pbno, c.field), c.html)
         if len({normalize(c.field, v) for v in (c.html, c.pdf, value)}) == 1:
             continue
-        out.append(
-            {
-                "pbno": c.pbno,
-                "field": c.field,
-                "html": c.html,
-                "pdf": c.pdf,
-                "quote": c.quote,
-                "page": c.page,
-                "llm": value,
-                "jw": None,
-                "jw_note": None,
-            }
-        )
+        out.append(_row(c, value))
     return out
 
 
@@ -219,30 +221,68 @@ def _key(r: dict) -> tuple[str, str]:
     return r["pbno"], r["field"]
 
 
-def merge_judge(picked: list[dict], filed: list[dict] | None) -> list[dict]:
-    """이번에 고른 칸에 파일에 적힌 jw·jw_note를 얹는다. 파일이 없으면 고른 칸 그대로다.
+_SEEN = ("html", "pdf", "quote", "page", "llm")  # jw가 판정할 때 본 값
 
-    jw가 채운 칸을 덮어쓰지 않는다. 고른 칸이 파일과 다르거나, 같은 칸의 HTML 값·PDF 값·근거 줄·쪽·
-    LLM 값이 jw가 본 값과 다르면 말없이 붙이지 않고 에러를 낸다.
-    """
-    if filed is None:
-        return picked
+
+def _changed(saved: dict, now: dict) -> None:
+    for k in _SEEN:
+        if saved[k] != now[k]:
+            raise ValueError(
+                f"{now['pbno']} {now['field']}: jw가 본 {k} 값이 이번에 읽은 값과 다르다. "
+                f"jw 판정을 새 값에 붙이지 않는다(파일 {saved[k]!r}, 이번 {now[k]!r})"
+            )
+
+
+def _no_dup(filed: list[dict]) -> None:
     seen = Counter(_key(r) for r in filed)
     if dup := sorted(f"{p} {f}" for (p, f), n in seen.items() if n > 1):
         raise ValueError(f"판정 파일에 같은 칸이 두 번 있다: {dup}")
-    now, before = {_key(r) for r in picked}, {_key(r) for r in filed}
-    if now != before:
-        diff = sorted(f"{p} {f}" for p, f in now ^ before)
-        raise ValueError(f"판정 파일의 칸이 이번에 고른 칸과 다르다: {diff}")
+
+
+def merge_judge(picked: list[dict], filed: list[dict] | None) -> list[dict]:
+    """이번에 고른 칸에 파일에 적힌 jw·jw_note를 얹는다. 파일이 없으면 고른 칸 그대로다.
+
+    jw가 채운 칸을 덮어쓰지 않는다. 이번에 골랐는데 파일에 없는 칸이거나, 같은 칸의 HTML 값·PDF 값·
+    근거 줄·쪽·LLM 값이 jw가 본 값과 다르면 말없이 붙이지 않고 에러를 낸다. 파일에는 있는데 이번에
+    안 고른 칸(정규화로 세 값이 같아진 칸)은 여기서 건드리지 않는다. `dropped_judge`가 따로 다룬다.
+    """
+    if filed is None:
+        return picked
+    _no_dup(filed)
+    if new := sorted(f"{p} {f}" for p, f in {_key(r) for r in picked} - {_key(r) for r in filed}):
+        raise ValueError(f"이번에 고른 칸이 판정 파일에 없다. jw가 아직 안 본 칸이다: {new}")
     saved = {_key(r): r for r in filed}
     for r in picked:
-        for k in ("html", "pdf", "quote", "page", "llm"):
-            if saved[_key(r)][k] != r[k]:
-                raise ValueError(
-                    f"{r['pbno']} {r['field']}: jw가 본 {k} 값이 이번에 읽은 값과 다르다. "
-                    f"jw 판정을 새 값에 붙이지 않는다(파일 {saved[_key(r)][k]!r}, 이번 {r[k]!r})"
-                )
+        _changed(saved[_key(r)], r)
     return [{**r, "jw": saved[_key(r)]["jw"], "jw_note": saved[_key(r)]["jw_note"]} for r in picked]
+
+
+def dropped_judge(
+    cells: list[Cell],
+    llm: dict[tuple[str, str], str | None],
+    picked: list[dict],
+    filed: list[dict] | None,
+) -> list[dict]:
+    """파일에는 있는데 이번에 안 고른 칸. 정규화로 HTML·PDF·LLM 값이 같아져 판정할 칸에서 빠졌다.
+
+    파일의 행을 그대로 돌려주고 파일은 고치지 않는다(jw 판정과 메모를 지우지 않는다).
+    대조한 칸에 없는 칸이거나 jw가 본 값이 지금 읽은 값과 다르면 에러다.
+    """
+    if filed is None:
+        return []
+    _no_dup(filed)
+    now = {(c.pbno, c.field): c for c in cells}
+    picked_keys = {_key(r) for r in picked}
+    out = []
+    for r in filed:
+        if _key(r) in picked_keys:
+            continue
+        c = now.get(_key(r))
+        if c is None:
+            raise ValueError(f"{r['pbno']} {r['field']}: 판정 파일의 칸이 이번에 대조한 칸에 없다")
+        _changed(r, _row(c, llm.get(_key(r), c.html)))
+        out.append(r)
+    return out
 
 
 def missing_material(row: dict) -> bool:
@@ -391,9 +431,14 @@ def render_judge(
     rows: list[dict],
     total_cells: int,
     bad: list[dict],
+    dropped: list[dict] | None = None,
     fields: tuple[str, ...] = FIELDS,
 ) -> str:
-    """rows는 jw 칸까지 채운 판정할 칸, bad는 근거 줄을 못 찾은 칸이다."""
+    """rows는 jw 칸까지 채운 판정할 칸, bad는 근거 줄을 못 찾은 칸이다.
+
+    dropped는 판정 파일에는 있는데 정규화로 세 값이 같아져 이번에 안 고른 칸이다.
+    """
+    dropped = dropped or []
     same = total_cells - len(rows)
     done = {j: sum(r["jw"] == j for r in rows) for j in JUDGES}
     pending = sum(r["jw"] is None for r in rows)
@@ -408,6 +453,8 @@ def render_judge(
         md += f"**jw 판정 전.** `판정 전` {pending}칸이 남아 있어 방식별 합계를 쓰지 않는다. "
         md += "`labels/source-judge.json`의 `jw` 칸을 채운 뒤 `judge-source`를 다시 돌린다.\n\n"
     md += f"- 같은 칸 {_pct(same, total_cells)}\n"
+    if dropped:
+        md += f"  - 그중 판정 파일에서 빠진 칸 {len(dropped)} (아래 절)\n"
     md += f"- 판정할 칸 {_pct(len(rows), total_cells)}\n"
     md += (
         f"- 재료(HTML 값·PDF 값·근거 줄·쪽·LLM 값)가 빠진 칸: {sum(map(missing_material, rows))}\n"
@@ -433,6 +480,17 @@ def render_judge(
         if rows
         else "없음\n"
     )
+    md += "\n## 정규화로 같아져 판정할 칸에서 빠진 칸\n\n"
+    if dropped:
+        md += "`labels/source-judge.json`에 jw 판정이 남아 있지만, 정규화 뒤 HTML 값·PDF 값·"
+        md += "LLM 값이 같아져 이번에 고르지 않은 칸이다. 파일의 판정은 지우지 않았고, "
+        md += "방식별 합계에서는 세 값이 같은 칸으로 센다.\n\n"
+        md += _table(
+            ("공고", "필드", "HTML 값", "PDF 값", "jw 판정"),
+            [(r["pbno"], r["field"], r["html"], r["pdf"], r["jw"] or PENDING) for r in dropped],
+        )
+    else:
+        md += "없음\n"
     md += "\n필드별 판정할 칸:\n\n"
     md += _table(("필드", "판정할 칸"), [(f, sum(r["field"] == f for r in rows)) for f in fields])
     if bad:
@@ -469,6 +527,7 @@ class Judged(NamedTuple):
     rows: list[dict]  # 판정할 칸(jw 칸까지)
     total: int  # 대조한 전체 칸
     bad: list[dict]  # 근거 줄을 그 쪽에서 못 찾은 칸
+    dropped: list[dict]  # 파일에는 있는데 정규화로 같아져 이번에 안 고른 칸(파일 그대로)
 
 
 def run_judge(
@@ -482,12 +541,16 @@ def run_judge(
 ) -> Judged:
     """판정할 칸을 골라 judge_path에 없으면 만들고, 있으면 jw 칸을 그대로 읽어 리포트를 쓴다.
 
+    파일에는 있는데 정규화로 같아져 이번에 안 고른 칸은 파일에 그대로 두고 리포트에만 적는다.
+
     data/raw/, 라벨 파일, extract_new만 읽는다. 청약홈과 OpenAI에 요청하지 않는다.
     """
     cells, texts, values = _load(pbnos, raw_dir, labels_path, extract_new, expected)
     picked = pick_cells(cells, values)
     exists = judge_path.exists()
-    rows = merge_judge(picked, load_judge(judge_path) if exists else None)
+    filed = load_judge(judge_path) if exists else None
+    rows = merge_judge(picked, filed)
+    dropped = dropped_judge(cells, values, picked, filed)
     if not exists:
         judge_path.parent.mkdir(parents=True, exist_ok=True)
         judge_path.write_text(
@@ -495,5 +558,5 @@ def run_judge(
         )
     bad = ungrounded_judge(rows, texts)
     out.parent.mkdir(parents=True, exist_ok=True)
-    out.write_text(render_judge(rows, len(cells), bad), encoding="utf-8")
-    return Judged(rows, len(cells), bad)
+    out.write_text(render_judge(rows, len(cells), bad, dropped), encoding="utf-8")
+    return Judged(rows, len(cells), bad, dropped)

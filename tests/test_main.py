@@ -345,7 +345,7 @@ def test_check_pdf_labels_makes_no_llm_and_exits_1_on_a_flagged_cell(monkeypatch
 def judged(rows=(), total=160, bad=()):
     from cheongyak_extract.truth_check import Judged
 
-    return Judged(list(rows), total, list(bad))
+    return Judged(list(rows), total, list(bad), [])
 
 
 def test_judge_source_command_makes_no_client_and_passes_paths(monkeypatch, capsys):
@@ -376,7 +376,7 @@ def test_judge_source_command_makes_no_client_and_passes_paths(monkeypatch, caps
     ]
     assert (
         capsys.readouterr().out.strip()
-        == "판정할 칸 3/160, 판정 전 3, 재료가 빠진 칸 1, 근거를 못 찾은 칸 0"
+        == "판정할 칸 3/160, 정규화로 빠진 칸 0, 판정 전 3, 재료가 빠진 칸 1, 근거를 못 찾은 칸 0"
     )
 
 
