@@ -96,10 +96,10 @@ HTML 값과 PDF 값 중 어느 쪽이 맞는지 jw가 판정하려면(청약홈�
 uv run python -m cheongyak_extract judge-source   # 판정 파일이 없으면 만들고, 있으면 읽어 reports/source-judge.md를 쓴다
 ```
 
-HTML 값·PDF 값(`labels/pdf-values-20.json`)·LLM 값이 정규화 뒤 하나라도 다른 칸을 `labels/source-judge.json`에 넣는다(재는 20건 160칸 중 7칸).
+HTML 값·PDF 값(`labels/pdf-values-20.json`)·LLM 값이 정규화 뒤 하나라도 다른 칸을 `labels/source-judge.json`에 넣는다(재는 20건 160칸 중 4칸). 파일에는 있는데 이번에 안 고른 칸(주소의 쉼표·괄호만 달라 정규화 뒤 같아진 공급위치 3칸, #183)은 파일에 그대로 두고 리포트의 「정규화로 같아져 판정할 칸에서 빠진 칸」 절에 jw 판정과 함께 적는다. 방식별 합계에서는 같은 칸으로 센다.
 칸마다 HTML 값·PDF 값·근거 줄·쪽·LLM 값이 있고 `jw`·`jw_note`는 null이다. jw가 칸을 보고 `jw`에 `HTML`(HTML 쪽이 맞다)·`PDF`(PDF 쪽이 맞다)·`둘 다`(같은 뜻이다)·`둘 다 아님` 중 하나를 적고,
 필요하면 `jw_note`에 한 줄을 적는다. HTML 값과 PDF 값이 같은 칸(시행사 2칸)에 `HTML`을 적으면 HTML 쪽에만 세고 `둘 다`를 적으면 두 쪽에 센다. 다 채운 뒤 같은 명령을 다시 돌리면 방식별로 맞는 값을 가진 칸 수가 나온다.
-`jw` 칸은 코드가 채우지 않고, 다시 돌려도 덮어쓰지 않는다. `jw`에 위 네 값 밖의 값을 적거나, 칸 목록·HTML 값·PDF 값·근거 줄·쪽·LLM 값이 이번에 읽은 것과 다르거나, 같은 칸이 두 번 있으면 에러다. 근거 줄을 그 쪽에서 못 찾은 칸이 있으면 종료 코드 1이다.
+`jw` 칸은 코드가 채우지 않고, 다시 돌려도 덮어쓰지 않는다. `jw`에 위 네 값 밖의 값을 적거나, 이번에 골랐는데 파일에 없는 칸이 있거나, 칸의 HTML 값·PDF 값·근거 줄·쪽·LLM 값이 jw가 본 값과 다르거나, 같은 칸이 두 번 있으면 에러다. 근거 줄을 그 쪽에서 못 찾은 칸이 있으면 종료 코드 1이다.
 세 결정(정규식 대 LLM, HTML 대 PDF, PDF에만 있는 필드)의 사실은 [docs/decision-source.md](docs/decision-source.md)에 있고, 고른 방식과 이유는 jw가 쓴다.
 
 PDF에만 적힌 필드 3개를 수동 정답으로 재려면(청약홈에 요청하지 않는다. `eval-pdf`는 OpenAI를 부른다):
@@ -149,14 +149,14 @@ normalize + report (필드별 지표 표)     →  stdout + reports/*.md
   [reports/extract-tune.md](reports/extract-tune.md)(프롬프트 수정 기록, 다듬는 공고 29건),
   [reports/extract-new.md](reports/extract-new.md)(고정 뒤 받은 공고 20건)
 - 정규식 baseline(#150): 다듬는 29건으로 규칙을 만들고 고정한 뒤 재는 20건을 한 번 쟀다.
-  재는 20건 160칸에서 정규식은 맞음 111(69.4%)·비움 34(21.2%)·다른 값으로 채움 15(9.4%), LLM(C안)은 맞음 154(96.2%)·비움 0·다른 값으로 채움 6(3.8%)이다.
+  재는 20건 160칸에서 정규식은 맞음 112(70.0%)·비움 34(21.2%)·다른 값으로 채움 14(8.8%), LLM(C안)은 맞음 154(96.2%)·비움 0·다른 값으로 채움 6(3.8%)이다.
   표 위치를 세야 하는 당첨자 발표일(정규식 4칸 대 LLM 20칸)·계약일(9 대 20)·시공사(10 대 19)에서 갈린다.
   [reports/regex-vs-llm.md](reports/regex-vs-llm.md)(비교 표), [reports/regex-tune.md](reports/regex-tune.md)(규칙 수정 기록),
   [reports/regex-new.md](reports/regex-new.md)(재는 20건), [reports/regex-more.md](reports/regex-more.md)(남은 101건 중 100건, 정규식만. 1건은 스캔 PDF라 건너뜀)
 - 수집(#151): `data/raw/`에 수집된 공고 150건, 열리지 않는 PDF 0건.
   [reports/raw.md](reports/raw.md)(`check-raw`), [reports/fetch.md](reports/fetch.md)(수집 기록). 150건에는 LLM 추출·`eval`을 아직 돌리지 않았다
-- 청약홈 정답과 PDF 값 대조(#149): 재는 20건 160칸에서 정규화 뒤 같은 칸은 155칸(96.9%), 근거를 PDF에서 못 찾은 칸은 0이다.
-  같지 않은 5칸은 표기 차이 3(괄호·쉼표)·다른 값 2(입주예정월 1, 시공사 1)다. PDF 값은 구현 루프가 PDF를 읽고 적었다.
+- 청약홈 정답과 PDF 값 대조(#149): 재는 20건 160칸에서 정규화 뒤 같은 칸은 158칸(98.8%), 근거를 PDF에서 못 찾은 칸은 0이다.
+  같지 않은 2칸은 다른 값 2(입주예정월 1, 시공사 1)다. 주소의 쉼표·괄호만 달랐던 3칸은 #183에서 같은 칸이 됐다(그전 155칸). PDF 값은 구현 루프가 PDF를 읽고 적었다.
   [reports/truth-check.md](reports/truth-check.md), [labels/pdf-values-20.json](labels/pdf-values-20.json)
 - PDF에만 있는 필드 3개(#152, 거주지를 PDF 안 같은 곳에서 읽는 재시작): 거주지를 따로 묻고, 일반공급 ①지역 묶음이 있으면 그 묶음만 LLM에 준다(149건 중 125건에서 코드가 찾는다).
   새로 뽑은 재는 30건의 거주지 30칸에서 맞음 29(96.7%)·비움 0·다른 값으로 채움 1이다. 읽은 곳별로 `묶음` 25칸은 25칸 맞음, `전체` 5칸은 4칸 맞음이다.
