@@ -57,7 +57,9 @@ def _count(v: str) -> str | None:
 
 
 def _address(v: str) -> str | None:
-    return re.sub(r"\s*([()])\s*", r"\1", " ".join(v.split()))
+    # 지우지 않고 공백으로 바꾼다. 지우면 `일원(평택`은 `일원평택`,
+    # `일원 (평택`은 `일원 평택`이 되어 서로 달라진다
+    return " ".join(re.sub(r"[(),]", " ", v).split())
 
 
 KINDS: dict[str, Callable[[str], str | None]] = {
