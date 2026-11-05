@@ -274,7 +274,7 @@ def _block_rule_1(pages: list[str]) -> Block | None:
             n, below = flat[j]
             if not below.strip():
                 continue
-            if mark := _AREA_LINE.search(below):
+            if (mark := _AREA_LINE.search(below)) and "②" not in below[mark.start() :]:
                 body = [below[mark.start() :].lstrip()]
                 for _, rest in flat[j + 1 :]:
                     if _ends_block(rest):
@@ -334,11 +334,13 @@ def rule_lines(pages: list[str]) -> tuple[int, int, int, int]:
     묶음을 못 찾은 공고에서 줄이 정말 없는지, 있는데 못 찾은 것인지 가른다.
     """
     text = [line for _, line in _lines(pages)]
-    nexts = [*text[1:], ""]
-    sentences = sum(
-        "경쟁이" in a and bool(_SENTENCE.search(f"{a}\n{b}"))
-        for a, b in zip(text, nexts, strict=True)
-    )
+    sentences = 0
+    for page in pages:  # 규칙 3처럼 쪽 안에서만 센다
+        lines = page.split("\n")
+        sentences += sum(
+            "경쟁이" in a and bool(_SENTENCE.search(f"{a}\n{b}"))
+            for a, b in zip(lines, [*lines[1:], ""], strict=True)
+        )
     return (
         sum(bool(_ORDER_LINE.search(t)) for t in text),
         sum(bool(_AREA_LINE.search(t)) for t in text),

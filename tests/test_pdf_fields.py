@@ -893,6 +893,16 @@ def test_resident_block_allows_a_head_mark_other_than_the_square_or_none(mark):
     assert got.text.startswith(mark.strip() or "①")
 
 
+def test_resident_block_does_not_take_the_wrapped_rest_of_an_order_line_for_the_area_line():
+    page = (
+        " - 2순위 : [ ① 지역 ▶ ② 추첨 ]\n"
+        " ① 지역 ▶ ② 가점 ▶ ③ 청약통장 ]\n"  # 순위 줄이 줄을 넘어 이어진 것
+        f" ① 지역 : {REGION}\n"
+    )
+    got = pf.resident_block([page])
+    assert got.text == f"① 지역 : {REGION}"
+
+
 def test_resident_block_follows_a_rank_line_at_the_end_of_a_page_to_the_area_line_on_the_next():
     # 2026000454 꼴: 순위 줄은 8쪽 끝, ①지역 줄은 9쪽 첫 줄. 쪽 번호는 ①지역 줄이 있는 쪽이다
     pages = ["- 2순위  : ①지역 → ②추첨\n\n   - 8 -", f"■ ①지역  : {REGION}\n\n■ ②가점\n"]
@@ -930,6 +940,11 @@ TABLE_ROWS = (
 TABLE_PAGES = ["표지", f"■ 안내\n{TABLE_TITLE}\n\n{TABLE_ROWS}"]
 SENTENCE = "경쟁이 있을 경우 해당 주택건설지역인 울산광역시 거주자가 우선합니다."
 SENTENCE_PAGES = ["표지", f"앞 줄\n  {SENTENCE}\n다음 줄\n그 다음 줄\n"]
+
+
+def test_rule_lines_counts_a_sentence_only_when_it_is_on_one_page_like_rule_3_does():
+    split = ["경쟁이 있을 경우", "거주자가 우선합니다."]  # 쪽을 넘는 문장은 규칙 3도 못 찾는다
+    assert pf.rule_lines(split) == (0, 0, 0, 0) and pf.resident_block(split) is None
 
 
 def test_rule_lines_counts_the_lines_each_rule_looks_for():
@@ -990,11 +1005,17 @@ def test_rule_2_does_not_stop_at_a_square_marker_line():
     assert got.rule == 2 and "30%를 우선공급" in got.text and "20%를 공급" in got.text
 
 
-def test_rule_2_block_is_20_lines_from_the_title_and_stays_on_its_page():
+def test_rule_2_block_is_20_lines_from_the_title():
     page = f"{TABLE_TITLE}\n" + "\n".join(f"줄{i:02d} 100%" for i in range(30))
-    got = pf.resident_block([page, "다음 쪽 줄"])
+    got = pf.resident_block([page])
     lines = got.text.split("\n")
     assert len(lines) == 20 and lines[0] == TABLE_TITLE and lines[-1] == "줄18 100%"
+
+
+def test_rule_2_block_stays_on_the_page_of_its_title():
+    page = f"앞\n{TABLE_TITLE}\n줄1 100%\n줄2"
+    got = pf.resident_block([page, "다음 쪽 줄 100%"])
+    assert got.text == f"{TABLE_TITLE}\n줄1 100%\n줄2"
 
 
 def test_rule_3_block_is_the_sentence_line_and_the_line_after_it():
