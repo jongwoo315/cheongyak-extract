@@ -2,14 +2,14 @@
  "schema_version": 2,
  "diagram_type": "workflow",
  "meta": {
-  "title": "cheongyak-extract 전체 흐름 — #153 PR #11",
+  "title": "cheongyak-extract 전체 흐름 — #183 PR #12",
   "locale": "ko",
   "quality_profile": "showcase",
-  "output": "workflow-153-full.html",
+  "output": "workflow-183-full.html",
   "repository": {
    "url": "https://github.com/jongwoo315/cheongyak-extract",
    "provider": "github",
-   "revision": "71288032909cac49b942ee53fc24e8bce6faf9e0"
+   "revision": "6f2dcf3e7cb8a1aef4d08d9c55011b4d9baad615"
   }
  },
  "lanes": [
@@ -286,7 +286,7 @@
   {
    "id": "pdfvals",
    "lane": "judge",
-   "col": 2,
+   "col": 1,
    "type": "frontend",
    "label": "PDF 값 적기",
    "sublabel": "20건 8필드, 근거 줄·쪽",
@@ -304,17 +304,48 @@
    "col": 4,
    "type": "database",
    "label": "jw 판정 파일·집계",
-   "sublabel": "[새로] 세 값이 다른 7칸 · 방식별 합계",
-   "tag": "새로 생김",
+   "sublabel": "[바뀜] 정규화로 같아진 칸은 jw 판정째 파일에 남김",
+   "tag": "조건 바뀜",
    "sources": [
     {
      "path": "src/cheongyak_extract/truth_check.py",
-     "line": 474,
-     "label": "run_judge"
+     "line": 260,
+     "label": "dropped_judge"
     },
     {
-     "path": "labels/source-judge.json",
-     "label": "판정 파일"
+     "path": "labels/source-judge.json"
+    }
+   ]
+  },
+  {
+   "id": "norm",
+   "lane": "judge",
+   "col": 2,
+   "type": "backend",
+   "label": "주소 정규화",
+   "sublabel": "[바뀜] 쉼표·괄호를 공백으로 바꾼다",
+   "tag": "조건 바뀜",
+   "sources": [
+    {
+     "path": "src/cheongyak_extract/normalize.py",
+     "line": 59,
+     "label": "_address"
+    }
+   ]
+  },
+  {
+   "id": "truthcheck",
+   "lane": "judge",
+   "col": 3,
+   "type": "database",
+   "label": "HTML 대 PDF 대조",
+   "sublabel": "같은 칸 수 · reports/truth-check.md",
+   "tag": "그대로",
+   "sources": [
+    {
+     "path": "src/cheongyak_extract/truth_check.py",
+     "line": 413,
+     "label": "run_check"
     }
    ]
   }
@@ -409,16 +440,26 @@
    "label": "루프가 읽음"
   },
   {
-   "id": "e-pdfvals-judge",
+   "id": "e-pdfvals-norm",
    "from": "pdfvals",
-   "to": "judgefile",
+   "to": "norm",
    "label": "PDF 값"
   },
   {
-   "id": "e-report-judge",
+   "id": "e-report-norm",
    "from": "eightreport",
-   "to": "judgefile",
+   "to": "norm",
    "label": "HTML 값·LLM 값"
+  },
+  {
+   "id": "e-norm-truth",
+   "from": "norm",
+   "to": "truthcheck"
+  },
+  {
+   "id": "e-truth-judge",
+   "from": "truthcheck",
+   "to": "judgefile"
   }
  ],
  "cards": [
@@ -426,8 +467,8 @@
    "dot": "cyan",
    "title": "읽는 법",
    "items": [
-    "[새로]는 main(PR #10 머지 뒤) 대비 이번 PR이 더한 단계다. 나머지 단계는 그대로다",
-    "PDF 값과 정답 파일은 구현 루프가 PDF를 읽고 적었다"
+    "[바뀜]은 main(PR #11 머지 뒤) 대비 이번 PR이 바꾼 단계다. 나머지 단계는 그대로다",
+    "정규화는 8필드 리포트(정규식·LLM)에도 같이 쓰인다. LLM 리포트는 다시 만들지 않았다"
    ]
   }
  ]
