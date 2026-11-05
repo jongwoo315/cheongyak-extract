@@ -13,4 +13,4 @@
 | 규칙 1 · 일반공급 ①지역 묶음 | 일반공급 「2순위 : ①지역」 줄 아래 글이 든 3줄 안의 「①지역」 줄부터 다음 머리 기호 줄이나 「②」가 든 줄 앞까지 | `src/cheongyak_extract/pdf_fields.py:265` (`_block_rule_1`) | #152, #179(꼴을 넓힘) |
 | 규칙 2 · 지역우선 공급기준 표 | 「지역우선 공급기준」으로 끝나는 제목 줄부터 같은 쪽 20줄. 그 줄 안에 %가 없는 제목은 건너뛴다 | `src/cheongyak_extract/pdf_fields.py:296` (`_block_rule_2`) | #179 |
 | 규칙 3 · 해당지역 우선 문장 | 「경쟁이 있을 경우 … 거주자가 우선」 문장이 시작하는 줄과 그 다음 줄 | `src/cheongyak_extract/pdf_fields.py:308` (`_block_rule_3`) | #179 |
-| 전체 | 세 규칙 모두 묶음을 못 찾아 거주지 질문에 PDF 전체 텍스트를 넘기는 경우 | `src/cheongyak_extract/pdf_fields.py:865` (`_extract_notice`의 `else` 가지) | #152 |
+| 전체 | 세 규칙 모두 묶음을 못 찾아 거주지 질문에 PDF 전체 텍스트를 넘기는 경우 | `src/cheongyak_extract/pdf_fields.py:867` (`_extract_notice`의 `else` 가지) | #152 |
