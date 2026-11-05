@@ -58,6 +58,10 @@ def _head(what: str, count: int) -> str:
 
 _WHOLE = "아래는 주택 입주자모집공고문 PDF 전체 텍스트다."
 _BLOCK = "아래는 주택 입주자모집공고문 PDF에서 일반공급 ①지역 묶음만 잘라 낸 텍스트다."
+_TABLE = "아래는 주택 입주자모집공고문 PDF에서 지역우선 공급기준 표가 있는 부분만 잘라 낸 텍스트다."
+_SENTENCE = (
+    "아래는 주택 입주자모집공고문 PDF에서 해당지역 거주자 우선 문장이 있는 부분만 잘라 낸 텍스트다."
+)
 
 # 거주지 값의 꼴(설계 §값의 꼴과 계산). 묶음으로 묻는 것과 전체 텍스트로 묻는 것이 같이 쓴다
 _RESIDENT_FORM = (
@@ -90,7 +94,7 @@ _FIELD_HELP = {
 # 전매제한·신혼부부 소득 기준은 전체 텍스트로 한 번에 묻는다. 거주지는 따로 묻는다
 TWO_FIELD_SET = FieldSet((RESALE, INCOME), _FIELD_HELP, _head(_WHOLE, 2))
 
-# 거주지 ①: 일반공급 ①지역 묶음이 있으면 그 묶음만 준다
+# 거주지 ①: 규칙 1 묶음. 일반공급 ①지역 묶음
 RESIDENT_BLOCK_SET = FieldSet(
     (RESIDENT,),
     {
@@ -102,7 +106,38 @@ RESIDENT_BLOCK_SET = FieldSet(
     _head(_BLOCK, 1),
 )
 
-# 거주지 ②: 묶음이 없으면 전체 텍스트를 주고 설계 §고르는 규칙 2·3 순서로 읽게 한다
+# 거주지 ②: 규칙 2 묶음. 특별공급과 일반공급에 같이 적용되는 지역우선 공급기준 표(와 그 위 설명)
+RESIDENT_TABLE_SET = FieldSet(
+    (RESIDENT,),
+    {
+        RESIDENT: (
+            "이 텍스트는 특별공급과 일반공급에 같이 적용되는 지역우선 공급기준 표가 있는 부분이다. "
+            "이 표의 우선공급 비율에서 읽는다. 표 위 설명 문단에 지역별 %가 적혀 있으면 "
+            "그것도 같은 값이다. "
+            "특별공급 유형별(다자녀·노부모부양 등) 표나 절에서는 읽지 않는다. "
+            "evidence는 값을 읽은 표의 행이나 문장을 글자 그대로 복사한다. "
+            "행이 여러 줄에 걸쳐 있으면 이어진 줄을 그대로 복사한다. " + _RESIDENT_FORM
+        )
+    },
+    _head(_TABLE, 1),
+)
+
+# 거주지 ③: 규칙 3 묶음. 일반공급 청약자 사이의 해당지역 거주자 우선 문장
+RESIDENT_SENTENCE_SET = FieldSet(
+    (RESIDENT,),
+    {
+        RESIDENT: (
+            "이 텍스트는 '경쟁이 있을 경우 해당 주택건설지역 거주자가 우선합니다'처럼 "
+            "청약자 사이에서 해당지역 거주자를 우선한다고 적은 문장이 있는 부분이다. "
+            "이 문장에서 읽는다. 지역별 %가 적혀 있지 않으면 value는 '해당지역 100%'다. "
+            "evidence는 그 문장을 글자 그대로 복사한다. "
+            "문장이 줄을 넘으면 이어진 두 줄을 복사한다. " + _RESIDENT_FORM
+        )
+    },
+    _head(_SENTENCE, 1),
+)
+
+# 거주지 ④: 묶음이 없으면 전체 텍스트를 주고 설계 §고르는 규칙 2·3 순서로 읽게 한다
 RESIDENT_FULL_SET = FieldSet(
     (RESIDENT,),
     {
@@ -207,6 +242,7 @@ def number_problems(field: str, value: str, quote: str) -> list[str]:
 class Block(NamedTuple):
     page: int  # 1부터
     text: str
+    rule: int  # 어느 규칙으로 찾았나: 1 일반공급 ①지역 묶음, 2 공통 표, 3 해당지역 우선 문장
 
 
 _ORDER_LINE = re.compile(
@@ -226,12 +262,9 @@ def _ends_block(line: str) -> bool:
     return line.lstrip().startswith(tuple(_HEAD_MARKS)) or "②" in line
 
 
-def resident_block(pages: list[str]) -> Block | None:
-    """일반공급 ①지역 묶음(설계 §고르는 규칙 1). 없으면 None.
-
-    「2순위 : ①지역」 줄 아래 글이 든 3줄 안의 「①지역」 줄부터, 다음 머리 기호 줄이나
-    「②」가 든 줄 앞까지다. 쪽을 넘어 찾고 이어 간다. 쪽 번호는 ①지역 줄이 있는 쪽이다.
-    """
+def _block_rule_1(pages: list[str]) -> Block | None:
+    """「2순위 : ①지역」 줄 아래 글이 든 3줄 안의 「①지역」 줄부터, 다음 머리 기호 줄이나
+    「②」가 든 줄 앞까지다. 쪽을 넘어 찾고 이어 간다. 쪽 번호는 ①지역 줄이 있는 쪽이다."""
     flat = _lines(pages)
     for i, (_, line) in enumerate(flat):
         if not _ORDER_LINE.search(line):
@@ -247,10 +280,51 @@ def resident_block(pages: list[str]) -> Block | None:
                     if _ends_block(rest):
                         break
                     body.append(rest)
-                return Block(n, "\n".join(body).rstrip())
+                return Block(n, "\n".join(body).rstrip(), 1)
             seen += 1
             if seen == _BELOW:
                 break
+    return None
+
+
+# 제목 줄은 「기준」으로 끝난다. 「…공급기준(8페이지)에 따라」 같은 안내 문장은 뒤에 말이 더 있다
+_TABLE_TITLE = re.compile(r"지역\s*우선\s*공급(?:물량\s*배정)?\s*기준\s*$")
+_TABLE_LINES = 20  # 제목 줄부터 이 줄 수까지, 같은 쪽 안에서
+_SENTENCE = re.compile(r"경쟁이\s*있(?:을|는)\s*경우[^.]{0,80}?거주자(?:가|를|에게)?\s*우선")
+
+
+def _block_rule_2(pages: list[str]) -> Block | None:
+    """「지역우선 공급기준」 제목 줄부터 20줄(같은 쪽 안). 줄 안에 %가 없는 제목은 건너뛴다."""
+    for n, page in enumerate(pages, start=1):
+        lines = page.split("\n")
+        for i, line in enumerate(lines):
+            if _TABLE_TITLE.search(line):
+                text = "\n".join(lines[i : i + _TABLE_LINES]).strip()
+                if "%" in text:
+                    return Block(n, text, 2)
+    return None
+
+
+def _block_rule_3(pages: list[str]) -> Block | None:
+    """「경쟁이 있을 경우 … 거주자가 우선」 문장이 시작하는 줄과 그 다음 줄(문장이 줄을 넘는다)."""
+    for n, page in enumerate(pages, start=1):
+        lines = page.split("\n")
+        for i, line in enumerate(lines):
+            text = "\n".join(lines[i : i + 2])
+            if "경쟁이" in line and _SENTENCE.search(text):
+                return Block(n, text.strip(), 3)
+    return None
+
+
+def resident_block(pages: list[str]) -> Block | None:
+    """거주지를 읽을 묶음(설계 §고르는 규칙). 규칙 1 → 2 → 3 순서로 처음 걸리는 것. 없으면 None.
+
+    1은 일반공급 ①지역 묶음, 2는 특별공급과 일반공급에 같이 적용되는 지역우선 공급기준 표,
+    3은 해당지역 거주자 우선 문장이다.
+    """
+    for find in (_block_rule_1, _block_rule_2, _block_rule_3):
+        if block := find(pages):
+            return block
     return None
 
 
@@ -284,7 +358,7 @@ def pick_resident(pbnos: list[str], used: list[str], n: int = RESIDENT_NOTICES) 
 QUOTE_NOT_ON_PAGE = "quote가 그 쪽 텍스트에 없음"
 NUMBER_NOT_IN_QUOTE = "숫자가 quote에 없음"
 NO_NORMAL_FORM = "값의 정규형을 만들 수 없음"
-QUOTE_OUTSIDE_BLOCK = "일반공급 ①지역 묶음 밖"
+QUOTE_OUTSIDE_BLOCK = "코드가 고른 묶음 밖"
 BAD_SHAPE = "값의 꼴이 표와 다름"
 SUM_NOT_100 = "%의 합이 100이 아님"
 NO_RULE_NOTE = "묶음이 없는 공고인데 note에 규칙 2·3 표시가 없음"
@@ -301,7 +375,9 @@ class LabelCell(NamedTuple):
     page: int | None
     note: str | None
     problems: tuple[str, ...]  # 값이 있는 칸이 정답 검사에 걸린 이유. 없으면 빈 튜플
-    rule: int | None = None  # 거주지 값이 있는 칸이 고르는 규칙 1·2·3 중 어디서 왔나. 모르면 None
+    rule: int | None = (
+        None  # 거주지 값이 있는 칸을 코드가 어느 규칙(1·2·3)의 묶음으로 읽나. 묶음이 없으면 None
+    )
 
 
 def _check_cell(where: str, raw: object) -> dict:
@@ -353,12 +429,9 @@ def _resident_problems(raw: dict, texts: list[str]) -> list[str]:
 
 
 def _resident_rule(raw: dict, texts: list[str]) -> int | None:
-    if raw["value"] is None:
-        return None
-    if resident_block(texts):
-        return 1
-    note = raw["note"] or ""
-    return 2 if RULE_2_MARK in note else 3 if RULE_3_MARK in note else None
+    """코드가 고른 규칙. 묶음을 못 찾으면 None(정답의 note는 보지 않는다)."""
+    block = resident_block(texts) if raw["value"] is not None else None
+    return block.rule if block else None
 
 
 def check_labels(
@@ -420,9 +493,16 @@ RIGHT, BLANK, OTHER = "맞음", "비움", "다른 값으로 채움"
 NULL_BLANK, NULL_FILLED = "null에 비움", "null에 값을 채움"
 STATES = (RIGHT, BLANK, OTHER, NULL_BLANK, NULL_FILLED)
 
-# 거주지를 읽은 곳: 일반공급 ①지역 묶음을 찾아 그것만 줬나, 못 찾아 전체 텍스트를 줬나
-FROM_BLOCK, FROM_WHOLE = "묶음", "전체"
-SOURCES = (FROM_BLOCK, FROM_WHOLE)
+# 거주지를 읽은 곳: 규칙 1·2·3 중 어느 묶음만 줬나, 셋 다 못 찾아 전체 텍스트를 줬나
+FROM_RULE_1, FROM_RULE_2, FROM_RULE_3 = "묶음(규칙 1)", "묶음(규칙 2)", "묶음(규칙 3)"
+FROM_WHOLE = "전체"
+SOURCES = (FROM_RULE_1, FROM_RULE_2, FROM_RULE_3, FROM_WHOLE)
+# 묶음 규칙마다 LLM에 주는 설명(FieldSet)과 리포트의 출처 이름
+_BLOCK_SETS = {
+    1: (RESIDENT_BLOCK_SET, FROM_RULE_1),
+    2: (RESIDENT_TABLE_SET, FROM_RULE_2),
+    3: (RESIDENT_SENTENCE_SET, FROM_RULE_3),
+}
 
 
 def cell_state(field: str, truth: str | None, got: str | None) -> str:
@@ -473,11 +553,13 @@ def _reason_kind(reason: str) -> str:
 
 def render_labels(
     files: list[tuple[str, list[LabelCell]]],
-    eligible: int,
-    with_block: int,
+    rules: dict[str, int | None],
     blocks: dict[str, bool],
 ) -> str:
-    """files: (정답 파일 경로, 칸 목록). blocks: 정답 파일에 든 공고별 일반공급 ①지역 묶음 유무."""
+    """files: (정답 파일 경로, 칸 목록). blocks: 정답 파일에 든 공고별 묶음 유무.
+
+    rules: PDF 텍스트가 있는 공고마다 코드가 고른 규칙. 묶음을 못 찾으면 None.
+    """
     cells = [c for _, cs in files for c in cs]
     flagged = [c for c in cells if c.problems]
     filled = [c for c in cells if c.value is not None]
@@ -502,8 +584,12 @@ def render_labels(
     md += f"- 정답 검사에 걸린 칸 {len(flagged)}개\n"
     multi = sum(c.field == RESALE and "," in (c.value or "") for c in cells)
     md += f"- 주택형마다 전매제한이 달라 `,`로 이은 칸 {multi}개\n"
-    md += f"- PDF 텍스트가 있는 공고 {eligible}건 중 일반공급 ①지역 묶음을 찾은 공고 "
-    md += f"{with_block}건\n"
+    found = Counter(r for r in rules.values() if r is not None)
+    md += f"- PDF 텍스트가 있는 공고 {len(rules)}건 중 묶음을 찾은 공고 {sum(found.values())}건: "
+    md += " · ".join(f"규칙 {r} {found[r]}건" for r in (1, 2, 3)) + "\n"
+    whole = [p for p, r in rules.items() if r is None]
+    md += f"- 세 규칙 모두 묶음을 못 찾아 PDF 전체를 넘기는 공고 {len(whole)}건"
+    md += (": " + ", ".join(whole) if whole else "") + "\n"
     md += (
         f"- 정답 파일의 공고 {len(blocks)}건 중 묶음이 있는 공고 {sum(blocks.values())}건"
         f", 없는 공고 {len(blocks) - sum(blocks.values())}건\n\n"
@@ -521,14 +607,14 @@ def render_labels(
     md += _table(("사유", "칸 수"), sorted(reasons.items())) if reasons else "없음\n"
     resident = [c for c in cells if c.field == RESIDENT]
     by_rule = Counter(c.rule for c in resident if c.value is not None)
-    md += f"\n거주지 정답 {len(resident)}칸이 고르는 규칙 1·2·3 중 어디서 왔나:\n\n"
+    md += f"\n거주지 정답 {len(resident)}칸을 코드가 고른 규칙 1·2·3 중 어느 것으로 읽나:\n\n"
     md += _table(
-        ("고르는 규칙", "칸 수"),
+        ("코드가 고른 규칙", "칸 수"),
         [
             ("1 일반공급 ①지역 묶음", by_rule[1]),
-            ("2 공통 표", by_rule[2]),
+            ("2 지역우선 공급기준 표", by_rule[2]),
             ("3 해당지역 우선 문장", by_rule[3]),
-            ("표시 없음", by_rule[None]),
+            ("묶음 없음 (전체 텍스트를 준다)", by_rule[None]),
             ("null (읽은 곳이 없다)", sum(c.value is None for c in resident)),
         ],
     )
@@ -558,13 +644,14 @@ def check_pdf_labels(
     _, _, test_texts, test_cells = _load(
         raw_dir, test_path, "test", test_split, test_expected, eligible
     )
-    with_block = sum(
-        resident_block(pdf_pages(raw_dir / p / "notice.pdf")) is not None for p in eligible
-    )
+    rules = {}
+    for p in eligible:
+        block = resident_block(pdf_pages(raw_dir / p / "notice.pdf"))
+        rules[p] = block.rule if block else None
     blocks = {p: resident_block(t) is not None for p, t in {**tune_texts, **test_texts}.items()}
     files = [(tune_path.as_posix(), tune_cells), (test_path.as_posix(), test_cells)]
     out.parent.mkdir(parents=True, exist_ok=True)
-    out.write_text(render_labels(files, len(eligible), with_block, blocks), encoding="utf-8")
+    out.write_text(render_labels(files, rules, blocks), encoding="utf-8")
     return [*tune_cells, *test_cells]
 
 
@@ -719,15 +806,15 @@ def _used(ask: Ask) -> int:
 def _extract_notice(
     pages: list[str], ask: Ask, resident_ask: Ask, others: bool
 ) -> tuple[dict[str, Extraction], dict[str, str], str, int]:
-    """거주지는 따로 묻는다: 묶음이 있으면 그 묶음만, 없으면 전체 텍스트를 준다.
+    """거주지는 따로 묻는다: 묶음(규칙 1·2·3)이 있으면 그 묶음만, 없으면 전체 텍스트를 준다.
 
     others가 참이면 전매제한·신혼부부 소득 기준을 전체 텍스트로 한 번에 묻는다.
     돌려주는 값: (필드별 결과, 비운 이유, 출처, 입력 토큰).
     """
     if block := resident_block(pages):
         shown = [""] * (block.page - 1) + [block.text]  # 근거는 이 쪽, 이 묶음 안에서만 인정한다
-        got = extract(shown, resident_ask, fields=RESIDENT_BLOCK_SET, only=block.page)
-        source = FROM_BLOCK
+        fields_for, source = _BLOCK_SETS[block.rule]
+        got = extract(shown, resident_ask, fields=fields_for, only=block.page)
     else:
         got = extract(pages, resident_ask, fields=RESIDENT_FULL_SET)
         source = FROM_WHOLE

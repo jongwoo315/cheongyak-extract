@@ -231,7 +231,15 @@ def test_two_field_set_has_no_resident_field_and_a_head_that_says_two():
     assert RESIDENT not in prompt and "①지역" not in prompt and "해당지역" not in prompt
 
 
-@pytest.mark.parametrize("fs", [pf.RESIDENT_BLOCK_SET, pf.RESIDENT_FULL_SET])
+ALL_RESIDENT_SETS = [
+    pf.RESIDENT_BLOCK_SET,
+    pf.RESIDENT_TABLE_SET,
+    pf.RESIDENT_SENTENCE_SET,
+    pf.RESIDENT_FULL_SET,
+]
+
+
+@pytest.mark.parametrize("fs", ALL_RESIDENT_SETS)
 def test_resident_sets_ask_only_the_resident_field_with_the_value_form_rules(fs):
     assert fs.names == (RESIDENT,)
     assert fs.schema == pf.RESIDENT_BLOCK_SET.schema
@@ -239,6 +247,17 @@ def test_resident_sets_ask_only_the_resident_field_with_the_value_form_rules(fs)
     assert "1개 필드" in fs.head
     help_ = fs.help[RESIDENT]
     assert "해당지역 100%" in help_ and "0%인 지역은 쓰지 않는다" in help_ and "더하면 100" in help_
+
+
+def test_each_block_rule_has_its_own_head_and_help():
+    block, table, sentence = pf.RESIDENT_BLOCK_SET, pf.RESIDENT_TABLE_SET, pf.RESIDENT_SENTENCE_SET
+    assert "지역우선 공급기준 표가 있는 부분" in table.head
+    assert "해당지역 거주자 우선 문장이 있는 부분" in sentence.head
+    assert "일반공급 ①지역 묶음" not in table.head + sentence.head
+    assert "일반공급 '① 지역' 줄" in block.help[RESIDENT]
+    assert "우선공급 비율" in table.help[RESIDENT] and "읽지 않는다" in table.help[RESIDENT]
+    assert "'해당지역 100%'다" in sentence.help[RESIDENT]
+    assert len({fs.help[RESIDENT] for fs in ALL_RESIDENT_SETS}) == 4
 
 
 def test_the_block_set_says_the_text_is_the_block_and_the_full_set_gives_rules_2_and_3():
@@ -449,8 +468,44 @@ def test_the_block_page_number_is_the_real_page_and_evidence_outside_it_is_blank
     result = pf.evaluate_pdf("test", raw, labels, ask, out, split=pf.Split([], ["Z"]), expected=1)
     assert "<page 2>" in asked[0] and "<page 1>" not in asked[0]
     (scored,) = result.cells
-    assert scored.state == pf.BLANK and scored.source == pf.FROM_BLOCK
+    assert scored.state == pf.BLANK and scored.source == pf.FROM_RULE_1
     assert scored.why is not None
+
+
+def test_each_block_rule_gets_its_own_prompt_and_its_own_source_name(tmp_path):
+    texts = {
+        "U": "공고U\n<표1> 동일순위 내 지역우선 공급기준\n① 해당지역(U단지) 100%\n② 기타 0%",
+        "V": "공고V\n경쟁이 있을 경우 해당 주택건설지역인 V단지 거주자가 우선합니다.\n다음",
+        "W": "공고W\n아무 말도 없다",
+    }
+    raw = tmp_path / "raw"
+    write_raw(raw, tuple(texts.items()))
+    cells = {
+        "U": {RESIDENT: cell("해당지역 100%", "해당지역(U단지) 100%", 1)},
+        "V": {
+            RESIDENT: cell("해당지역 100%", "V단지 거주자가 우선합니다.", 1, "해당지역 우선 문장")
+        },
+        "W": {RESIDENT: null()},
+    }
+    path = tmp_path / "l.json"
+    path.write_text(json.dumps({"test": list(texts), "cells": cells}, ensure_ascii=False), "utf-8")
+    asked = []
+
+    def ask(prompt):
+        asked.append(prompt)
+        return json.dumps({RESIDENT: {"value": None, "evidence": None, "page": None}})
+
+    out = tmp_path / "o.md"
+    split = pf.Split([], list(texts))
+    result = pf.evaluate_pdf("test", raw, path, ask, out, split=split, expected=3)
+    assert [c.source for c in result.cells] == [pf.FROM_RULE_2, pf.FROM_RULE_3, pf.FROM_WHOLE]
+    u, v, w = asked
+    assert "지역우선 공급기준 표가 있는 부분" in u and "아무 말도" not in u and "U단지" in u
+    assert "해당지역 거주자 우선 문장이 있는 부분" in v and "다음" in v and "공고V" not in v
+    assert "전체 텍스트" in w and "공고W" in w
+    md = out.read_text(encoding="utf-8")
+    assert "| 묶음(규칙 2) | 1 |" in md and "| 묶음(규칙 3) | 1 |" in md
+    assert "| 묶음(규칙 1) | 0 |" in md and "| 전체 | 1 |" in md
 
 
 def test_test_set_asks_only_the_resident_field_and_scores_only_resident_cells(
@@ -460,7 +515,7 @@ def test_test_set_asks_only_the_resident_field_and_scores_only_resident_cells(
     result, md = run_eval(resident_set, "test", tmp_path, lambda p: asked.append(p) or fake_ask(p))
     assert len(asked) == 2 and all("다음 1개 필드" in p for p in asked)
     got = {(c.pbno, c.field, c.source): c.state for c in result.cells}
-    assert got == {("P", RESIDENT, "묶음"): pf.RIGHT, ("Q", RESIDENT, "전체"): pf.BLANK}
+    assert got == {("P", RESIDENT, "묶음(규칙 1)"): pf.RIGHT, ("Q", RESIDENT, "전체"): pf.BLANK}
     assert f"| {RESIDENT} | 2 | 1 | 1 | 0 | 0 | 0 | 0 |" in md.split("필드별")[1]
     assert RESALE not in md and INCOME not in md
 
@@ -482,10 +537,13 @@ def test_report_counts_resident_cells_by_source_and_flags_a_sum_other_than_100(
     top = md.split("필드별")[0]
     assert "거주지 칸 4개를 읽은 곳(출처)별로 센다" in top
     # 묶음: K 하나(다른 값). 전체: T(null에 비움) A(비움) B(null에 값을 채움)
-    assert "| 묶음 | 1 | 0 (0.0%) | 0 (0.0%) | 1 (100.0%) | 0 (—) | 0 (—) |" in top
+    assert "| 묶음(규칙 1) | 1 | 0 (0.0%) | 0 (0.0%) | 1 (100.0%) | 0 (—) | 0 (—) |" in top
+    assert "| 묶음(규칙 2) | 0 |" in top and "| 묶음(규칙 3) | 0 |" in top
     assert "| 전체 | 3 | 0 (0.0%) | 1 (100.0%) | 0 (0.0%) | 1 (50.0%) | 1 (50.0%) |" in top
     assert "100이 아닌 거주지 칸 1개" in top
-    assert [c.sum_off for c in result.cells if c.field == RESIDENT and c.source == "묶음"] == [True]
+    assert [
+        c.sum_off for c in result.cells if c.field == RESIDENT and c.source == "묶음(규칙 1)"
+    ] == [True]
 
 
 def test_wrong_cell_table_has_truth_page_llm_page_source_and_sum_columns(raw_and_labels, tmp_path):
@@ -495,7 +553,7 @@ def test_wrong_cell_table_has_truth_page_llm_page_source_and_sum_columns(raw_and
     assert head in wrong
     assert (
         f"| K | {RESIDENT} | 해당지역 100% | 해당지역 50% / 기타지역 60% | 해당지역 거주자 "
-        "| 1 | 1 | 묶음 | 예 | 다른 값으로 채움 |"
+        "| 1 | 1 | 묶음(규칙 1) | 예 | 다른 값으로 채움 |"
     ) in wrong
     assert f"| A | {RESIDENT} | 평택시 30% / 기타 70% | — | — | 1 | — | 전체 | — | 비움 |" in wrong
     assert (
@@ -665,16 +723,16 @@ def test_a_resident_only_file_with_another_field_is_an_error():
         pf.check_labels(data, pf.Split([], ["P"]), pages, 1, (RESIDENT,))
 
 
-def test_label_rule_is_1_with_a_block_else_2_or_3_from_the_note_else_none():
+def test_label_rule_is_the_rule_of_the_block_the_code_picks_not_the_note():
     def rule(pages, note):
         raw = cell("해당지역 100%", "해당지역 거주자 우선", 2, note)
         return pf._resident_rule(raw, pages)
 
     assert rule(BLOCK_PAGES, None) == 1
-    assert rule(NO_BLOCK_PAGES, "p2 공통 표") == 2
-    assert rule(NO_BLOCK_PAGES, "해당지역 우선 문장") == 3
-    assert rule(NO_BLOCK_PAGES, "p2") is None
-    assert pf._resident_rule(null(), NO_BLOCK_PAGES) is None
+    assert rule(TABLE_PAGES, "해당지역 우선 문장") == 2  # note와 달라도 코드가 고른 규칙이다
+    assert rule(SENTENCE_PAGES, "공통 표") == 3
+    assert rule(NO_BLOCK_PAGES, "p2 공통 표") is None  # 묶음이 없으면 note를 보지 않는다
+    assert pf._resident_rule(null(), TABLE_PAGES) is None
 
 
 def test_pick_resident_takes_30_from_the_sorted_rest_with_seed_1522():
@@ -714,12 +772,16 @@ def test_labels_report_counts_blocks_rules_reasons_and_both_files(
     md = out.read_text(encoding="utf-8")
     assert len(cells) == 14 and len([c for c in cells if c.problems]) == 1
     # 공고 6건(T A B K P Q) 중 K·P에 묶음이 있다
-    assert "PDF 텍스트가 있는 공고 6건 중 일반공급 ①지역 묶음을 찾은 공고 2건" in md
+    assert (
+        "PDF 텍스트가 있는 공고 6건 중 묶음을 찾은 공고 2건: 규칙 1 2건 · 규칙 2 0건 · 규칙 3 0건"
+        in md
+    )
+    assert "세 규칙 모두 묶음을 못 찾아 PDF 전체를 넘기는 공고 4건: " in md
     assert "정답 파일의 공고 6건 중 묶음이 있는 공고 2건, 없는 공고 4건" in md
     assert "| 숫자가 quote에 없음 | 1 |" in md  # 사유별 수
     assert "| 1 일반공급 ①지역 묶음 | 2 |" in md  # K·P
-    assert "| 2 공통 표 | 1 |" in md  # A
-    assert "| 3 해당지역 우선 문장 | 1 |" in md  # Q
+    assert "| 2 지역우선 공급기준 표 | 0 |" in md and "| 3 해당지역 우선 문장 | 0 |" in md
+    assert "| 묶음 없음 (전체 텍스트를 준다) | 2 |" in md  # A·Q
     assert "| null (읽은 곳이 없다) | 2 |" in md  # T·B
     assert "labels.json" in md and "resident.json" in md
     assert f"| {RESIDENT} | 4 | 2 | 0 |" in md  # 거주지는 두 파일을 합쳐 6칸
@@ -851,6 +913,105 @@ def test_resident_block_ends_at_a_line_that_starts_with_a_marker_or_has_the_circ
         )
         got = pf.resident_block([page])
         assert "이어지는 줄" in got.text and "끝나고 난 줄" not in got.text, stop
+
+
+# --- 규칙 2·3 묶음과 Block.rule(#179 설계 §설계 결정 2) ---
+
+TABLE_TITLE = "<표1> 동일순위 내 지역우선 공급기준"
+TABLE_ROWS = (
+    "  기준일   지역구분   우선공급 비율\n  ① 해당 주택건설지역(밀양시)   100%\n  ② 기타지역   0%\n"
+)
+TABLE_PAGES = ["표지", f"■ 안내\n{TABLE_TITLE}\n\n{TABLE_ROWS}"]
+SENTENCE = "경쟁이 있을 경우 해당 주택건설지역인 울산광역시 거주자가 우선합니다."
+SENTENCE_PAGES = ["표지", f"앞 줄\n  {SENTENCE}\n다음 줄\n그 다음 줄\n"]
+
+
+def test_rule_1_block_says_it_is_rule_1():
+    assert pf.resident_block(BLOCK_PAGES).rule == 1
+
+
+def test_rule_2_block_runs_from_the_table_title_line_and_has_the_page_of_the_title():
+    got = pf.resident_block(TABLE_PAGES)
+    assert (got.page, got.rule) == (2, 2)
+    assert got.text.startswith(TABLE_TITLE) and "밀양시)   100%" in got.text
+    assert "안내" not in got.text  # 제목 줄 앞은 넣지 않는다
+
+
+def test_rule_2_title_may_be_a_heading_for_the_special_and_general_supply_together():
+    page = "■ 신혼부부ㆍ생애최초 특별공급 및 일반공급 지역 우선공급 기준\n\n" + TABLE_ROWS
+    got = pf.resident_block([page])
+    assert got.rule == 2 and "100%" in got.text
+
+
+@pytest.mark.parametrize(
+    "line",
+    [
+        "■ 이 주택은 규칙 제25조에 의거 지역우선 공급기준(8페이지)에 따라 지역별 물량을 배정하고",
+        "    - 동일 순위 내 경쟁이 있는 경우 “<표1> 동일순위 내 지역우선 공급기준”에 따라 공급하며",
+        "※ 동일순위 내 지역 우선공급 기준은 공고일 현재 신청자의 주민등록표등본상 거주지역이며",
+    ],
+)
+def test_a_sentence_that_points_to_the_table_is_not_a_rule_2_title(line):
+    assert pf.resident_block(["표지", f"{line}\n{TABLE_ROWS}"]) is None
+
+
+def test_rule_2_skips_a_title_whose_lines_have_no_percent_and_takes_the_next_title():
+    # 2026000261 꼴: 「공급물량 배정기준」 소제목 아래에는 %가 없고 표는 다음 제목 아래 있다
+    page = (
+        "  1. 공급구분별 지역우선 공급물량 배정기준\n\n"
+        "■ 밀양시 부북지구는 규칙 제25조에 의거 우선공급 비율만큼 배정하며\n"
+        + "\n".join(f"줄{i}" for i in range(25))
+        + f"\n{TABLE_TITLE}\n{TABLE_ROWS}"
+    )
+    got = pf.resident_block([page])
+    assert got.rule == 2 and got.text.startswith(TABLE_TITLE)
+
+
+def test_rule_2_does_not_stop_at_a_square_marker_line():
+    # 2026000438 꼴: 소제목 아래 ■ 문단에 지역별 %가 적혀 있다
+    page = (
+        "2-1. 공급구분별 지역우선 공급물량 배정기준\n\n"
+        "■ 평택시 1년 이상 계속 거주자에게 공급세대수의 30%를 우선공급하며\n"
+        "  경기도 6개월 이상 거주자에게 20%를 공급하고\n"
+    )
+    got = pf.resident_block([page])
+    assert got.rule == 2 and "30%를 우선공급" in got.text and "20%를 공급" in got.text
+
+
+def test_rule_2_block_is_20_lines_from_the_title_and_stays_on_its_page():
+    page = f"{TABLE_TITLE}\n" + "\n".join(f"줄{i:02d} 100%" for i in range(30))
+    got = pf.resident_block([page, "다음 쪽 줄"])
+    lines = got.text.split("\n")
+    assert len(lines) == 20 and lines[0] == TABLE_TITLE and lines[-1] == "줄18 100%"
+
+
+def test_rule_3_block_is_the_sentence_line_and_the_line_after_it():
+    got = pf.resident_block(SENTENCE_PAGES)
+    assert (got.page, got.rule) == (2, 3)
+    assert got.text == f"  {SENTENCE}\n다음 줄".strip()
+    assert "앞 줄" not in got.text and "그 다음 줄" not in got.text
+
+
+def test_rule_3_sentence_may_go_over_two_lines():
+    page = "동일 순위 내 경쟁이 있을 경우 해당 주택건설지역(밀양시)\n거주자가 우선합니다.\n끝\n"
+    got = pf.resident_block([page])
+    assert got.rule == 3 and "거주자가 우선합니다." in got.text and "끝" not in got.text
+
+
+def test_rule_3_ignores_a_priority_sentence_for_something_other_than_residents():
+    page = (
+        "단 경쟁이 있을 경우 익산시에 거주한 자에 우선 공급합니다.\n"
+        "경쟁이 있으면 1호에게 우선 배정합니다.\n"
+    )
+    assert pf.resident_block([page]) is None
+
+
+def test_rule_1_wins_over_rule_2_and_rule_2_over_rule_3():
+    one, two, three = BLOCK_PAGES, TABLE_PAGES, SENTENCE_PAGES
+    assert pf.resident_block([*three, *two, *one]).rule == 1
+    assert pf.resident_block([*three, *two]).rule == 2
+    assert pf.resident_block(three).rule == 3
+    assert pf.resident_block(["표지"]) is None
 
 
 # --- 거주지 값의 꼴·합·정답 검사(설계 §값의 꼴과 계산, §정답 검사에 더하는 것) ---
