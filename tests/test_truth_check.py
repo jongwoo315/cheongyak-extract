@@ -6,10 +6,12 @@ import pytest
 
 from cheongyak_extract.extract import FIELDS as ALL_FIELDS
 from cheongyak_extract.truth_check import (
+    Cell,
     Checked,
     Reread,
     cause,
     check_cells,
+    dropped_judge,
     llm_values,
     load_judge,
     merge_judge,
@@ -313,6 +315,34 @@ def judge_cell(jw=None, jw_note=None, **over):
     return {**base, **over}
 
 
+def same_cell(field="시공사"):
+    """세 값이 정규화 뒤 같은 칸. 판정 파일에서 빠지는 쪽이다."""
+    return Cell(
+        PB,
+        field,
+        "(주)가나건설",
+        "가나건설 주식회사",
+        2,
+        "시공사 : 가나건설 주식회사",
+        None,
+        True,
+        False,
+    )
+
+
+def row_of(c):
+    """판정 파일에 jw가 본 값으로 남아 있는 칸의 재료. llm은 표에 없는 칸이라 HTML 값이다."""
+    return {
+        "pbno": c.pbno,
+        "field": c.field,
+        "html": c.html,
+        "pdf": c.pdf,
+        "quote": c.quote,
+        "page": c.page,
+        "llm": c.html,
+    }
+
+
 def test_pick_cells_keeps_only_cells_where_a_value_differs():
     # 공급규모: HTML 100세대 · PDF 90 · LLM(표에 없음 = HTML 값) → PDF만 다르다
     # 시공사: 정규화 뒤 셋 다 같다 → 고르지 않는다
@@ -430,11 +460,59 @@ def test_merge_judge_raises_on_a_duplicated_cell_in_the_file():
         merge_judge([judge_cell()], [judge_cell(jw="HTML"), judge_cell(jw="PDF")])
 
 
-def test_merge_judge_raises_when_the_cells_differ_from_the_file():
-    with pytest.raises(ValueError, match="공급규모"):
+def test_merge_judge_raises_on_a_picked_cell_the_file_does_not_have():
+    # 이번에 골랐는데 파일에 없는 칸은 jw가 아직 안 본 칸이다
+    with pytest.raises(ValueError, match="시공사"):
         merge_judge([judge_cell(field="시공사")], [judge_cell(jw="HTML")])
     with pytest.raises(ValueError, match="시공사"):
         merge_judge([judge_cell(), judge_cell(field="시공사")], [judge_cell()])
+
+
+def test_merge_judge_leaves_a_filed_cell_that_was_not_picked_this_time():
+    # 정규화로 세 값이 같아진 칸은 이번에 안 골랐어도 에러가 아니다
+    filed = [judge_cell(jw="PDF"), judge_cell(field="시공사", jw="둘 다")]
+    got = merge_judge([judge_cell()], filed)
+    assert [(r["field"], r["jw"]) for r in got] == [("공급규모", "PDF")]
+
+
+def test_dropped_judge_returns_the_filed_rows_that_were_not_picked():
+    c = same_cell("시공사")
+    filed = [judge_cell(jw="PDF"), judge_cell(jw="둘 다", jw_note="괄호 차이", **row_of(c))]
+    got = dropped_judge([c], {}, [judge_cell()], filed)
+    assert [(r["field"], r["jw"], r["jw_note"]) for r in got] == [("시공사", "둘 다", "괄호 차이")]
+    assert got[0] is filed[1]  # jw가 쓴 행을 그대로 돌려준다
+
+
+@pytest.mark.parametrize("verdict", ["HTML", "PDF", "둘 다 아님"])
+def test_dropped_judge_raises_when_jw_said_a_side_was_wrong(verdict):
+    # 세 값이 같아졌는데 jw가 한쪽이 틀렸다고 적었으면 같은 칸으로 세면 합계가 틀린다
+    c = same_cell("시공사")
+    with pytest.raises(ValueError, match=f"시공사.*{verdict}"):
+        dropped_judge([c], {}, [], [judge_cell(jw=verdict, **row_of(c))])
+
+
+def test_dropped_judge_keeps_a_cell_jw_has_not_judged():
+    c = same_cell("시공사")
+    got = dropped_judge([c], {}, [], [judge_cell(jw=None, **row_of(c))])
+    assert [r["jw"] for r in got] == [None]
+
+
+def test_dropped_judge_without_a_file_has_nothing_to_drop():
+    assert dropped_judge([same_cell("시공사")], {}, [], None) == []
+
+
+def test_dropped_judge_raises_when_a_filed_cell_is_not_compared_at_all():
+    # 필드 이름이 바뀐 행이 말없이 「같아진 칸」으로 남으면 안 된다
+    with pytest.raises(ValueError, match="없는필드"):
+        dropped_judge([same_cell("시공사")], {}, [], [judge_cell(field="없는필드", jw="HTML")])
+
+
+@pytest.mark.parametrize("key", ["html", "pdf", "quote", "page", "llm"])
+def test_dropped_judge_raises_when_the_value_jw_saw_changed(key):
+    c = same_cell("시공사")
+    changed = {**row_of(c), key: "바뀐 값" if key != "page" else 9}
+    with pytest.raises(ValueError, match=f"시공사.*{key}"):
+        dropped_judge([c], {}, [], [judge_cell(jw="HTML", **changed)])
 
 
 # ---- #153 Task 2: 근거 줄 검사와 리포트 ----
@@ -567,6 +645,47 @@ def test_render_judge_pdf_only_fields_section_cites_the_reports():
     assert "| 신혼부부 소득 기준 | 46 | 42 |" in sec
 
 
+def dropped2():
+    return [
+        judge_cell(
+            pbno="2026000443", field="공급위치", html="A 일원 B", pdf="A 일원 (B)", jw="둘 다"
+        ),
+        judge_cell(pbno="2026000438", field="공급위치", html="C(D)", pdf="C, (D)", jw="둘 다"),
+    ]
+
+
+def test_render_judge_lists_dropped_cells_with_values_and_jw():
+    md = render_judge(rows3(), 160, [], dropped2())
+    sec = md.split("## 정규화로 같아져 판정할 칸에서 빠진 칸")[1].split("\n## ")[0]
+    assert "| 2026000443 | 공급위치 | A 일원 B | A 일원 (B) | 둘 다 |" in sec
+    assert "| 2026000438 | 공급위치 | C(D) | C, (D) | 둘 다 |" in sec
+    assert "세 값이 같은 칸으로 센다" in sec
+
+
+def test_render_judge_counts_dropped_cells_in_the_same_cells_not_in_the_verdict_table():
+    # 판정할 칸 3 + 빠진 칸 2 = 같지 않았던 칸 5. 같은 칸은 160 - 3 = 157에 빠진 칸 2가 들어 있다
+    rows = rows3()
+    for r, v in zip(rows, ("HTML", "둘 다", "PDF"), strict=True):
+        r["jw"] = v
+    md = render_judge(rows, 160, [], dropped2())
+    assert "- 같은 칸 157/160 (98.1%)" in md
+    assert "그중 판정 파일에서 빠진 칸 2" in md
+    assert "| 둘 다 | 1 |" in md  # 빠진 칸의 jw(둘 다 2)는 jw 판정별 칸 수에 섞지 않는다
+    assert "- HTML 쪽이 맞는 값을 가진 칸: 159/160" in md  # 157 + HTML 1 + 둘 다 1
+
+
+def test_render_judge_shows_a_dropped_cell_without_jw_as_pending():
+    md = render_judge(rows3(), 160, [], [judge_cell(field="공급위치", jw=None)])
+    sec = md.split("## 정규화로 같아져 판정할 칸에서 빠진 칸")[1].split("\n## ")[0]
+    assert "| 공급위치 |" in sec and "판정 전 |" in sec
+
+
+def test_render_judge_without_dropped_cells_says_none():
+    md = render_judge(rows3(), 160, [])
+    sec = md.split("## 정규화로 같아져 판정할 칸에서 빠진 칸")[1].split("\n## ")[0]
+    assert "없음" in sec
+
+
 # ---- #153 Task 3: run_judge ----
 
 
@@ -630,7 +749,7 @@ def test_run_judge_rejects_a_file_whose_cells_differ_from_this_run(tmp_path):
     raw, labels_path, md, judge, out = judge_paths(tmp_path)
     rows = run_judge([PB], raw, labels_path, md, judge, out, expected=8).rows
     judge.write_text(json.dumps(rows[1:], ensure_ascii=False), encoding="utf-8")
-    with pytest.raises(ValueError, match="다르다"):
+    with pytest.raises(ValueError, match="파일에 없다"):
         run_judge([PB], raw, labels_path, md, judge, out, expected=8)
 
 
@@ -642,3 +761,65 @@ def test_run_judge_reports_a_quote_missing_from_its_page(tmp_path):
     got = run_judge([PB], raw, labels_path, md, judge, out, expected=8)
     assert [r["field"] for r in got.bad] == ["공급규모"]
     assert "근거 줄을 그 쪽에서 못 찾은 칸: 1" in out.read_text(encoding="utf-8")
+
+
+# ---- #183: 정규화로 같아져 판정할 칸에서 빠진 칸 ----
+
+
+def judged_file_with_a_same_cell(tmp_path):
+    """나머지 칸의 판정이 채워진 파일에, 쉼표·괄호만 다른 공급위치 칸의 jw 판정을 더한다."""
+    raw, labels_path, md, judge, out = judge_paths(tmp_path)
+    lab = json.loads(labels_path.read_text(encoding="utf-8"))
+    addr = "인천광역시 계양구 동양동 420-3번지 일원, (인천계양 테크노밸리 공공주택지구 AC4블록)"
+    lab[PB]["공급위치"] = cell(addr, "supply 496", 1)  # 쉼표와 괄호만 HTML 값과 다르다
+    labels_path.write_text(json.dumps(lab, ensure_ascii=False), encoding="utf-8")
+    cells = run_check([PB], raw, labels_path, md, tmp_path / "t.md", expected=8).cells
+    c = next(c for c in cells if c.field == "공급위치")
+    assert c.same
+    first = run_judge([PB], raw, labels_path, md, judge, out, expected=8).rows
+    assert "공급위치" not in {r["field"] for r in first}  # 이번에는 안 고른다
+    extra = judge_cell(
+        pbno=c.pbno, field=c.field, html=c.html, pdf=c.pdf, quote=c.quote, page=c.page, llm=c.html
+    )
+    rows = [{**r, "jw": "PDF"} for r in first] + [{**extra, "jw": "둘 다", "jw_note": "괄호 차이"}]
+    judge.write_text(json.dumps(rows, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    return raw, labels_path, md, judge, out, c
+
+
+def test_run_judge_keeps_a_filed_cell_that_became_the_same_and_reports_it(tmp_path):
+    raw, labels_path, md, judge, out, c = judged_file_with_a_same_cell(tmp_path)
+    before = judge.read_text(encoding="utf-8")
+    got = run_judge([PB], raw, labels_path, md, judge, out, expected=8)
+    assert judge.read_text(encoding="utf-8") == before  # 빠진 칸의 jw 판정을 지우지 않는다
+    assert [(r["field"], r["jw"]) for r in got.dropped] == [(c.field, "둘 다")]
+    assert c.field not in {r["field"] for r in got.rows}
+    text = out.read_text(encoding="utf-8")
+    assert "정규화로 같아져 판정할 칸에서 빠진 칸" in text
+    assert f"| {PB} | {c.field} |" in text.split("정규화로 같아져")[1]
+    assert "PDF 쪽이 맞는 값을 가진 칸: 8/8" in text  # 빠진 칸은 같은 칸으로 센다
+
+
+def test_run_judge_raises_on_a_picked_cell_the_file_does_not_have(tmp_path):
+    raw, labels_path, md, judge, out, _ = judged_file_with_a_same_cell(tmp_path)
+    rows = json.loads(judge.read_text(encoding="utf-8"))
+    judge.write_text(json.dumps(rows[1:], ensure_ascii=False), encoding="utf-8")  # 고른 칸을 뺀다
+    with pytest.raises(ValueError, match="파일에 없다"):
+        run_judge([PB], raw, labels_path, md, judge, out, expected=8)
+
+
+def test_run_judge_raises_when_a_dropped_cell_value_changed(tmp_path):
+    raw, labels_path, md, judge, out, c = judged_file_with_a_same_cell(tmp_path)
+    rows = json.loads(judge.read_text(encoding="utf-8"))
+    rows[-1]["pdf"] = "jw가 본 다른 값"
+    judge.write_text(json.dumps(rows, ensure_ascii=False), encoding="utf-8")
+    with pytest.raises(ValueError, match=f"{c.field}.*pdf"):
+        run_judge([PB], raw, labels_path, md, judge, out, expected=8)
+
+
+def test_run_judge_raises_when_a_picked_cell_value_changed(tmp_path):
+    raw, labels_path, md, judge, out, _ = judged_file_with_a_same_cell(tmp_path)
+    rows = json.loads(judge.read_text(encoding="utf-8"))
+    rows[0]["html"] = "jw가 본 다른 값"
+    judge.write_text(json.dumps(rows, ensure_ascii=False), encoding="utf-8")
+    with pytest.raises(ValueError, match="공급규모.*html"):
+        run_judge([PB], raw, labels_path, md, judge, out, expected=8)

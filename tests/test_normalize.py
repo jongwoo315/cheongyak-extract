@@ -51,10 +51,48 @@ def test_company_list_with_a_missing_name_stays_different():
     assert normalize("시공사", "㈜가, ㈜나") != normalize("시공사", "㈜가")
 
 
-def test_address_only_tidies_spaces_around_parens():
+def test_address_tidies_spaces_around_parens():
     a = "인천광역시 계양구 동양동 458-3번지 일원 (인천계양 테크노밸리 AC3블록)"
     b = "인천광역시  계양구 동양동 458-3번지 일원(인천계양 테크노밸리 AC3블록)"
     assert normalize("공급위치", a) == normalize("공급위치", b)
+
+
+# 설계 §왜 표의 세 쌍. HTML 값은 왼쪽, PDF 값은 오른쪽
+@pytest.mark.parametrize(
+    ("html", "pdf"),
+    [
+        (  # 2026000443: PDF만 뒤를 괄호로 묶었다
+            "부산광역시 강서구 강동동 5048-5번지 일원 에코델타시티 공동6BL",
+            "부산광역시 강서구 강동동 5048-5번지 일원 (에코델타시티 공동6BL)",
+        ),
+        (  # 2026000438: PDF만 쉼표가 있다
+            "경기도 평택시 고덕동 고덕면 일원(평택고덕국제화계획지구 A65BL)",
+            "경기도 평택시 고덕동, 고덕면 일원(평택고덕국제화계획지구 A65BL)",
+        ),
+        (  # 2026000437
+            "경기도 평택시 고덕동 고덕면 일원(평택고덕국제화계획지구 A12BL)",
+            "경기도 평택시 고덕동, 고덕면 일원(평택고덕국제화계획지구 A12BL)",
+        ),
+    ],
+)
+def test_address_ignores_commas_and_parens(html, pdf):
+    assert normalize("공급위치", html) == normalize("공급위치", pdf)
+
+
+def test_address_turns_punctuation_into_a_space_so_words_do_not_merge():
+    # 지우기만 하면 일원(평택 → 일원평택, 일원 (평택 → 일원 평택으로 갈린다
+    assert normalize("공급위치", "고덕면 일원(평택") == normalize("공급위치", "고덕면 일원 (평택")
+    assert normalize("공급위치", "고덕동,고덕면") == "고덕동 고덕면"
+
+
+def test_address_does_not_touch_square_brackets():
+    assert normalize("공급위치", "일원 [A12BL]") != normalize("공급위치", "일원 A12BL")
+
+
+def test_punctuation_rule_is_address_only():
+    # 회사명은 쉼표로 나뉘고, 날짜·세대수 규칙은 그대로다
+    assert normalize("시공사", "㈜가, ㈜나") == "가,나"
+    assert normalize("모집공고일", "2026-10-23 (헤럴드경제신문)") == "2026-10-23"
 
 
 def test_unreadable_value_falls_back_to_stripped_original():

@@ -342,10 +342,10 @@ def test_check_pdf_labels_makes_no_llm_and_exits_1_on_a_flagged_cell(monkeypatch
     assert cli.main(["check-pdf-labels"]) == 0
 
 
-def judged(rows=(), total=160, bad=()):
+def judged(rows=(), total=160, bad=(), dropped=()):
     from cheongyak_extract.truth_check import Judged
 
-    return Judged(list(rows), total, list(bad))
+    return Judged(list(rows), total, list(bad), list(dropped))
 
 
 def test_judge_source_command_makes_no_client_and_passes_paths(monkeypatch, capsys):
@@ -376,8 +376,16 @@ def test_judge_source_command_makes_no_client_and_passes_paths(monkeypatch, caps
     ]
     assert (
         capsys.readouterr().out.strip()
-        == "판정할 칸 3/160, 판정 전 3, 재료가 빠진 칸 1, 근거를 못 찾은 칸 0"
+        == "판정할 칸 3/160, 정규화로 빠진 칸 0, 판정 전 3, 재료가 빠진 칸 1, 근거를 못 찾은 칸 0"
     )
+
+
+def test_judge_source_prints_the_dropped_cell_count(monkeypatch, capsys):
+    monkeypatch.setattr(cli, "_new_pbnos", lambda: ["2026000001"])
+    dropped = [{"pbno": "2026000443", "field": "공급위치"}] * 3
+    monkeypatch.setattr(cli, "run_judge", lambda *a: judged(total=160, dropped=dropped))
+    assert cli.main(["judge-source"]) == 0
+    assert "정규화로 빠진 칸 3" in capsys.readouterr().out
 
 
 def test_judge_source_passes_the_out_path(monkeypatch):
