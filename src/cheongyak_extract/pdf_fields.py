@@ -294,7 +294,7 @@ _SENTENCE_RE = re.compile(r"경쟁이\s*있(?:을|는)\s*경우[^.]{0,80}?거주
 
 
 def _block_rule_2(pages: list[str]) -> Block | None:
-    """「지역우선 공급기준」 제목 줄부터 20줄(같은 쪽 안). 줄 안에 %가 없는 제목은 건너뛴다."""
+    """「지역우선 공급기준」 제목 줄부터 20줄(같은 쪽). 20줄에 %가 없으면 그 제목은 건너뛴다."""
     for n, page in enumerate(pages, start=1):
         lines = page.split("\n")
         for i, line in enumerate(lines):
