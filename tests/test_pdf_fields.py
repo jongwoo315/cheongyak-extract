@@ -790,9 +790,67 @@ def test_resident_block_is_none_without_the_2nd_rank_line():
     assert pf.resident_block([]) is None
 
 
-def test_resident_block_is_none_when_the_area_line_is_more_than_3_lines_below():
-    page = "- 2순위  : ①지역 → ②추첨\n\n\n\n\n■ ①지역 : 해당지역 거주자\n"
+def test_resident_block_is_none_when_the_area_line_is_more_than_3_text_lines_below():
+    # 빈 줄은 세지 않는다. 글이 든 줄 3개를 지나면 ①지역 줄이 아니다
+    page = "- 2순위  : ①지역 → ②추첨\n\nㄱ\n\nㄴ\n\nㄷ\n\n■ ①지역 : 해당지역 거주자\n"
     assert pf.resident_block([page]) is None
+
+
+# --- 규칙 1이 받는 꼴(#179 설계 §설계 결정 1) ---
+
+REGION = "해당지역 거주자(수원시) → 기타지역 거주자(경기도)"
+
+
+def test_resident_block_reads_a_bracketed_rank_line_and_skips_blank_lines_to_the_area_line():
+    # 2026000103·162·502 꼴: 순위 줄이 `[ ① 지역 ▶ ② 추첨 ]`이고 ①지역 줄이 소제목 아래 있다
+    page = (
+        " - 1순위 가점제 : [ ① 지역 ▶ ② 가점 ]        - 2순위 : [ ① 지역 ▶ ② 추첨 ]\n"
+        " - 1순위 추첨제 : [ ① 지역 ▶ ② 무주택자 우선공급 ▶ ③ 추첨 ]\n\n\n"
+        "  일반공급 1순위 가점제 당첨자 선정방법\n\n\n"
+        f" ① 지역 : {REGION}\n"
+        " ② 가점\n"
+    )
+    got = pf.resident_block(["표지", page])
+    assert got.page == 2
+    assert got.text == f"① 지역 : {REGION}"
+
+
+@pytest.mark.parametrize("mark", ["￭ ", "• ", "▌ ", ""])
+def test_resident_block_allows_a_head_mark_other_than_the_square_or_none(mark):
+    # 2026000116·274·342·382·445·455·471 꼴
+    order = "        - 2순위  : ①지역 → ②추첨\n"
+    page = f"{order}         {mark}①지역  : {REGION}\n         {mark}②가점\n"
+    got = pf.resident_block([page])
+    assert got.text.endswith(REGION) and "②" not in got.text
+    assert got.text.startswith(mark.strip() or "①")
+
+
+def test_resident_block_follows_a_rank_line_at_the_end_of_a_page_to_the_area_line_on_the_next():
+    # 2026000454 꼴: 순위 줄은 8쪽 끝, ①지역 줄은 9쪽 첫 줄. 쪽 번호는 ①지역 줄이 있는 쪽이다
+    pages = ["- 2순위  : ①지역 → ②추첨\n\n   - 8 -", f"■ ①지역  : {REGION}\n\n■ ②가점\n"]
+    got = pf.resident_block(pages)
+    assert got.page == 2 and REGION in got.text
+
+
+def test_resident_block_goes_on_over_a_page_break_until_the_next_marker_line():
+    # 2026000270·310 꼴: 묶음이 쪽 끝에서 잘렸다
+    pages = [
+        f"- 2순위  : ①지역 → ②추첨\n■ ①지역 : {REGION}\n  → 기타 거주자\n",
+        "  (경기도 6개월 이상 거주자)\n※ 안내\n■ ②가점\n",
+    ]
+    got = pf.resident_block(pages)
+    assert got.page == 1
+    assert "(경기도 6개월 이상 거주자)" in got.text
+    assert "안내" not in got.text
+
+
+def test_resident_block_ends_at_a_line_that_starts_with_a_marker_or_has_the_circled_2():
+    for stop in ("※ 안내", "• 안내", "￭ 안내", "▌ 안내", "당첨자  ②가점"):
+        page = (
+            f"- 2순위  : ①지역 → ②추첨\n■ ①지역 : {REGION}\n  이어지는 줄\n{stop}\n끝나고 난 줄\n"
+        )
+        got = pf.resident_block([page])
+        assert "이어지는 줄" in got.text and "끝나고 난 줄" not in got.text, stop
 
 
 # --- 거주지 값의 꼴·합·정답 검사(설계 §값의 꼴과 계산, §정답 검사에 더하는 것) ---

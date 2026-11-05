@@ -209,30 +209,48 @@ class Block(NamedTuple):
     text: str
 
 
-_ORDER_LINE = re.compile(r"2\s*순위\s*:\s*①\s*지역")  # 일반공급 절에만 있다. 특별공급 절에는 없다
-_AREA_MARK = re.compile(r"■\s*①\s*지역")
-_BELOW = 3  # 「2순위」 줄 아래 이 줄 수 안에 「■ ①지역」 줄이 온다
+_ORDER_LINE = re.compile(
+    r"2\s*순위\s*:\s*\[?\s*①\s*지역"
+)  # 일반공급 절에만 있다. 특별공급 절에는 없다
+_AREA_LINE = re.compile(r"(?:^\s*|[■￭•▌]\s*)①\s*지역")  # 머리 기호는 있어도 없어도 된다
+_BELOW = 3  # 「2순위」 줄 아래 글이 든 줄 이 수 안에 「①지역」 줄이 온다. 빈 줄은 안 센다
+_HEAD_MARKS = "■￭•▌※"
+
+
+def _lines(pages: list[str]) -> list[tuple[int, str]]:
+    """쪽을 이어 붙인 (쪽 번호, 줄) 목록. 쪽을 넘는 묶음을 찾으려고 한 목록으로 본다."""
+    return [(n, line) for n, page in enumerate(pages, start=1) for line in page.split("\n")]
+
+
+def _ends_block(line: str) -> bool:
+    return line.lstrip().startswith(tuple(_HEAD_MARKS)) or "②" in line
 
 
 def resident_block(pages: list[str]) -> Block | None:
     """일반공급 ①지역 묶음(설계 §고르는 규칙 1). 없으면 None.
 
-    「2순위 : ①지역」 줄 아래 3줄 안의 「■ ①지역」 줄부터, 다음 「■」가 든 줄 앞까지다.
+    「2순위 : ①지역」 줄 아래 글이 든 3줄 안의 「①지역」 줄부터, 다음 머리 기호 줄이나
+    「②」가 든 줄 앞까지다. 쪽을 넘어 찾고 이어 간다. 쪽 번호는 ①지역 줄이 있는 쪽이다.
     """
-    for n, page in enumerate(pages, start=1):
-        lines = page.split("\n")
-        for i, line in enumerate(lines):
-            if not _ORDER_LINE.search(line):
+    flat = _lines(pages)
+    for i, (_, line) in enumerate(flat):
+        if not _ORDER_LINE.search(line):
+            continue
+        seen = 0
+        for j in range(i + 1, len(flat)):
+            n, below = flat[j]
+            if not below.strip():
                 continue
-            for j in range(i + 1, min(i + 1 + _BELOW, len(lines))):
-                if not (mark := _AREA_MARK.search(lines[j])):
-                    continue
-                body = [lines[j][mark.start() :]]
-                for rest in lines[j + 1 :]:
-                    if "■" in rest:
+            if mark := _AREA_LINE.search(below):
+                body = [below[mark.start() :].lstrip()]
+                for _, rest in flat[j + 1 :]:
+                    if _ends_block(rest):
                         break
                     body.append(rest)
                 return Block(n, "\n".join(body).rstrip())
+            seen += 1
+            if seen == _BELOW:
+                break
     return None
 
 
