@@ -290,7 +290,7 @@ def _block_rule_1(pages: list[str]) -> Block | None:
 # 제목 줄은 「기준」으로 끝난다. 「…공급기준(8페이지)에 따라」 같은 안내 문장은 뒤에 말이 더 있다
 _TABLE_TITLE = re.compile(r"지역\s*우선\s*공급(?:물량\s*배정)?\s*기준\s*$")
 _TABLE_LINES = 20  # 제목 줄부터 이 줄 수까지, 같은 쪽 안에서
-_SENTENCE = re.compile(r"경쟁이\s*있(?:을|는)\s*경우[^.]{0,80}?거주자(?:가|를|에게)?\s*우선")
+_SENTENCE_RE = re.compile(r"경쟁이\s*있(?:을|는)\s*경우[^.]{0,80}?거주자(?:가|를|에게)?\s*우선")
 
 
 def _block_rule_2(pages: list[str]) -> Block | None:
@@ -311,7 +311,7 @@ def _block_rule_3(pages: list[str]) -> Block | None:
         lines = page.split("\n")
         for i, line in enumerate(lines):
             text = "\n".join(lines[i : i + 2])
-            if "경쟁이" in line and _SENTENCE.search(text):
+            if "경쟁이" in line and _SENTENCE_RE.search(text):
                 return Block(n, text.strip(), 3)
     return None
 
@@ -338,7 +338,7 @@ def rule_lines(pages: list[str]) -> tuple[int, int, int, int]:
     for page in pages:  # 규칙 3처럼 쪽 안에서만 센다
         lines = page.split("\n")
         sentences += sum(
-            "경쟁이" in a and bool(_SENTENCE.search(f"{a}\n{b}"))
+            "경쟁이" in a and bool(_SENTENCE_RE.search(f"{a}\n{b}"))
             for a, b in zip(lines, [*lines[1:], ""], strict=True)
         )
     return (
