@@ -807,6 +807,38 @@ def test_labels_report_counts_blocks_rules_reasons_and_both_files(
     assert f"| {RESALE} | 2 | 2 | 1 |" in md
 
 
+def test_labels_report_names_the_rule_found_in_the_unsorted_text(
+    raw_and_labels, resident_set, tmp_path, monkeypatch
+):
+    raw, labels_path, split = raw_and_labels
+    raw30, path30, split30 = resident_set
+    for src in raw30.iterdir():
+        (raw / src.name).mkdir()
+        for f in src.iterdir():
+            (raw / src.name / f.name).write_bytes(f.read_bytes())
+    real = pf.pdf_pages
+    # A는 sort=True 텍스트에 묶음이 없고 sort=False 텍스트에는 규칙 2 표가 있다
+    monkeypatch.setattr(
+        pf,
+        "pdf_pages",
+        lambda path, sort=True: real(path) if sort or path.parent.name != "A" else TABLE_PAGES,
+    )
+    out = tmp_path / "labels.md"
+    pf.check_pdf_labels(
+        raw,
+        labels_path,
+        path30,
+        out,
+        tune_split=split,
+        test_split=split30,
+        tune_expected=12,
+        test_expected=2,
+    )
+    md = out.read_text(encoding="utf-8")
+    assert "| A | 순위 줄 0 · ①지역 줄 0 · 제목 줄 0 · 문장 0 | 규칙 2 |" in md
+    assert "| Q | 순위 줄 0 · ①지역 줄 0 · 제목 줄 0 · 문장 0 | 없음 |" in md
+
+
 # --- 일반공급 ①지역 묶음(설계 §고르는 규칙 1) ---
 
 MULTI_CHILD = (
