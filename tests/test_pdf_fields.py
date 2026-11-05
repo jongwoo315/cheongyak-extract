@@ -737,6 +737,19 @@ def test_label_rule_is_the_rule_of_the_block_the_code_picks_not_the_note():
     assert label(TABLE_PAGES, "찾아본 쪽", value=None) == (None, 2)  # 값이 없는 칸은 규칙이 없다
 
 
+def test_quote_outside_block_is_judged_against_the_rule_2_and_rule_3_block_text():
+    def problems(pages, quote, page=2):
+        raw = cell("해당지역 100%", quote, page, "공통 표")
+        data = {"test": ["P"], "cells": {"P": {RESIDENT: raw}}}
+        (got,) = pf.check_labels(data, pf.Split([], ["P"]), {"P": pages}, 1, (RESIDENT,))
+        return got.problems
+
+    assert pf.QUOTE_OUTSIDE_BLOCK in problems(TABLE_PAGES, "■ 안내")  # 제목 줄 위
+    assert pf.QUOTE_OUTSIDE_BLOCK not in problems(TABLE_PAGES, "② 기타지역   0%")
+    assert pf.QUOTE_OUTSIDE_BLOCK in problems(SENTENCE_PAGES, "그 다음 줄")  # 문장 줄 + 다음 줄 밖
+    assert pf.QUOTE_OUTSIDE_BLOCK not in problems(SENTENCE_PAGES, "다음 줄")
+
+
 def test_pick_resident_takes_30_from_the_sorted_rest_with_seed_1522():
     import random
 
