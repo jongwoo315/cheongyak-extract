@@ -328,6 +328,33 @@ def resident_block(pages: list[str]) -> Block | None:
     return None
 
 
+def rule_lines(pages: list[str]) -> tuple[int, int, int, int]:
+    """세 규칙이 찾는 줄이 텍스트에 몇 줄 있나: (순위 줄, ①지역 줄, 제목 줄, 문장).
+
+    묶음을 못 찾은 공고에서 줄이 정말 없는지, 있는데 못 찾은 것인지 가른다.
+    """
+    text = [line for _, line in _lines(pages)]
+    nexts = [*text[1:], ""]
+    sentences = sum(
+        "경쟁이" in a and bool(_SENTENCE.search(f"{a}\n{b}"))
+        for a, b in zip(text, nexts, strict=True)
+    )
+    return (
+        sum(bool(_ORDER_LINE.search(t)) for t in text),
+        sum(bool(_AREA_LINE.search(t)) for t in text),
+        sum(bool(_TABLE_TITLE.search(t)) for t in text),
+        sentences,
+    )
+
+
+class WholeNotice(NamedTuple):
+    """세 규칙 모두 묶음을 못 찾아 PDF 전체를 넘기는 공고."""
+
+    pbno: str
+    lines: tuple[int, int, int, int]  # rule_lines(sort=True 텍스트)
+    unsorted_rule: int | None  # sort=False 텍스트로 찾은 묶음의 규칙. 못 찾으면 None
+
+
 class Split(NamedTuple):
     tune: list[str]
     test: list[str]
@@ -375,9 +402,9 @@ class LabelCell(NamedTuple):
     page: int | None
     note: str | None
     problems: tuple[str, ...]  # 값이 있는 칸이 정답 검사에 걸린 이유. 없으면 빈 튜플
-    rule: int | None = (
-        None  # 거주지 값이 있는 칸을 코드가 어느 규칙(1·2·3)의 묶음으로 읽나. 묶음이 없으면 None
-    )
+    # 거주지 값이 있는 칸을 코드가 어느 규칙(1·2·3)의 묶음으로 읽나. 묶음이 없으면 None
+    rule: int | None = None
+    block_page: int | None = None  # 그 묶음이 있는 쪽. 묶음이 없으면 None
 
 
 def _check_cell(where: str, raw: object) -> dict:
@@ -428,12 +455,6 @@ def _resident_problems(raw: dict, texts: list[str]) -> list[str]:
     return found
 
 
-def _resident_rule(raw: dict, texts: list[str]) -> int | None:
-    """코드가 고른 규칙. 묶음을 못 찾으면 None(정답의 note는 보지 않는다)."""
-    block = resident_block(texts) if raw["value"] is not None else None
-    return block.rule if block else None
-
-
 def check_labels(
     data: object,
     split: Split,
@@ -468,7 +489,8 @@ def check_labels(
             if f not in got:
                 raise ValueError(f"{pbno}: 정답에 필드 {f}이(가) 없다")
             raw = _check_cell(f"{pbno} {f}", got[f])
-            rule = _resident_rule(raw, texts[pbno]) if f == RESIDENT else None
+            block = resident_block(texts[pbno]) if f == RESIDENT else None
+            rule = block.rule if block and raw["value"] is not None else None
             out.append(
                 LabelCell(
                     pbno,
@@ -479,6 +501,7 @@ def check_labels(
                     raw["note"],
                     _problems(f, raw, texts[pbno]),
                     rule,
+                    block.page if block else None,
                 )
             )
     if extra := set(cells) - {*split.tune, *split.test}:
@@ -542,8 +565,11 @@ def _pct(n: int, total: int) -> str:
 
 def _problem_table(flagged: list[LabelCell]) -> str:
     return _table(
-        ("공고", "필드", "쪽", "이유", "quote"),
-        [(c.pbno, c.field, c.page, "; ".join(c.problems), c.quote) for c in flagged],
+        ("공고", "필드", "정답 쪽", "묶음 쪽", "묶음 규칙", "이유", "정답 quote"),
+        [
+            (c.pbno, c.field, c.page, c.block_page, c.rule, "; ".join(c.problems), c.quote)
+            for c in flagged
+        ],
     )
 
 
@@ -555,6 +581,7 @@ def render_labels(
     files: list[tuple[str, list[LabelCell]]],
     rules: dict[str, int | None],
     blocks: dict[str, bool],
+    whole: list[WholeNotice],
 ) -> str:
     """files: (정답 파일 경로, 칸 목록). blocks: 정답 파일에 든 공고별 묶음 유무.
 
@@ -587,9 +614,8 @@ def render_labels(
     found = Counter(r for r in rules.values() if r is not None)
     md += f"- PDF 텍스트가 있는 공고 {len(rules)}건 중 묶음을 찾은 공고 {sum(found.values())}건: "
     md += " · ".join(f"규칙 {r} {found[r]}건" for r in (1, 2, 3)) + "\n"
-    whole = [p for p, r in rules.items() if r is None]
     md += f"- 세 규칙 모두 묶음을 못 찾아 PDF 전체를 넘기는 공고 {len(whole)}건"
-    md += (": " + ", ".join(whole) if whole else "") + "\n"
+    md += (": " + ", ".join(w.pbno for w in whole) if whole else "") + "\n"
     md += (
         f"- 정답 파일의 공고 {len(blocks)}건 중 묶음이 있는 공고 {sum(blocks.values())}건"
         f", 없는 공고 {len(blocks) - sum(blocks.values())}건\n\n"
@@ -620,6 +646,20 @@ def render_labels(
     )
     md += f"\n검사에 걸린 칸 {len(flagged)}개:\n\n"
     md += _problem_table(flagged) if flagged else "없음\n"
+    if whole:
+        md += "\n전체를 넘기는 공고의 텍스트에서 세 규칙이 찾는 줄(sort=True: 읽는 순서 텍스트, "
+        md += "sort=False: pymupdf 기본 텍스트):\n\n"
+        md += _table(
+            ("공고", "sort=True 텍스트의 줄 수", "sort=False 텍스트에서 찾은 규칙"),
+            [
+                (
+                    w.pbno,
+                    "순위 줄 {} · ①지역 줄 {} · 제목 줄 {} · 문장 {}".format(*w.lines),
+                    f"규칙 {w.unsorted_rule}" if w.unsorted_rule else "없음",
+                )
+                for w in whole
+            ],
+        )
     nulls = [c for c in cells if c.value is None]
     md += f"\nnull 칸 {len(nulls)}개의 note (찾아본 쪽):\n\n"
     md += _table(("공고", "필드", "note"), [(c.pbno, c.field, c.note) for c in nulls])
@@ -644,14 +684,21 @@ def check_pdf_labels(
     _, _, test_texts, test_cells = _load(
         raw_dir, test_path, "test", test_split, test_expected, eligible
     )
-    rules = {}
+    labelled = {**tune_texts, **test_texts}  # 이미 읽은 공고는 다시 읽지 않는다
+    rules: dict[str, int | None] = {}
+    whole: list[WholeNotice] = []
     for p in eligible:
-        block = resident_block(pdf_pages(raw_dir / p / "notice.pdf"))
+        path = raw_dir / p / "notice.pdf"
+        texts = labelled[p] if p in labelled else pdf_pages(path)
+        block = resident_block(texts)
         rules[p] = block.rule if block else None
-    blocks = {p: resident_block(t) is not None for p, t in {**tune_texts, **test_texts}.items()}
+        if block is None:
+            other = resident_block(pdf_pages(path, sort=False))
+            whole.append(WholeNotice(p, rule_lines(texts), other.rule if other else None))
+    blocks = {p: resident_block(t) is not None for p, t in labelled.items()}
     files = [(tune_path.as_posix(), tune_cells), (test_path.as_posix(), test_cells)]
     out.parent.mkdir(parents=True, exist_ok=True)
-    out.write_text(render_labels(files, rules, blocks), encoding="utf-8")
+    out.write_text(render_labels(files, rules, blocks, whole), encoding="utf-8")
     return [*tune_cells, *test_cells]
 
 

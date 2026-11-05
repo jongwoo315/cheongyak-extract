@@ -724,15 +724,17 @@ def test_a_resident_only_file_with_another_field_is_an_error():
 
 
 def test_label_rule_is_the_rule_of_the_block_the_code_picks_not_the_note():
-    def rule(pages, note):
-        raw = cell("해당지역 100%", "해당지역 거주자 우선", 2, note)
-        return pf._resident_rule(raw, pages)
+    def label(pages, note, value="해당지역 100%"):
+        raw = cell(value, "해당지역 거주자 우선", 2, note) if value else null()
+        data = {"test": ["P"], "cells": {"P": {RESIDENT: raw}}}
+        (got,) = pf.check_labels(data, pf.Split([], ["P"]), {"P": pages}, 1, (RESIDENT,))
+        return got.rule, got.block_page
 
-    assert rule(BLOCK_PAGES, None) == 1
-    assert rule(TABLE_PAGES, "해당지역 우선 문장") == 2  # note와 달라도 코드가 고른 규칙이다
-    assert rule(SENTENCE_PAGES, "공통 표") == 3
-    assert rule(NO_BLOCK_PAGES, "p2 공통 표") is None  # 묶음이 없으면 note를 보지 않는다
-    assert pf._resident_rule(null(), TABLE_PAGES) is None
+    assert label(BLOCK_PAGES, None) == (1, 3)
+    assert label(TABLE_PAGES, "해당지역 우선 문장") == (2, 2)  # note와 달라도 코드가 고른 규칙이다
+    assert label(SENTENCE_PAGES, "공통 표") == (3, 2)
+    assert label(NO_BLOCK_PAGES, "p2 공통 표") == (None, None)  # 묶음이 없으면 note를 보지 않는다
+    assert label(TABLE_PAGES, "찾아본 쪽", value=None) == (None, 2)  # 값이 없는 칸은 규칙이 없다
 
 
 def test_pick_resident_takes_30_from_the_sorted_rest_with_seed_1522():
@@ -784,6 +786,10 @@ def test_labels_report_counts_blocks_rules_reasons_and_both_files(
     assert "| 묶음 없음 (전체 텍스트를 준다) | 2 |" in md  # A·Q
     assert "| null (읽은 곳이 없다) | 2 |" in md  # T·B
     assert "labels.json" in md and "resident.json" in md
+    assert "| 공고 | 필드 | 정답 쪽 | 묶음 쪽 | 묶음 규칙 | 이유 | 정답 quote |" in md
+    # 묶음이 없는 공고마다 세 규칙이 찾는 줄이 텍스트에 몇 줄 있는지 적는다
+    assert "| A | 순위 줄 0 · ①지역 줄 0 · 제목 줄 0 · 문장 0 | 없음 |" in md
+    assert "| P |" not in md.split("전체를 넘기는 공고의 텍스트에서")[1]
     assert f"| {RESIDENT} | 4 | 2 | 0 |" in md  # 거주지는 두 파일을 합쳐 6칸
     assert f"| {RESALE} | 2 | 2 | 1 |" in md
 
@@ -924,6 +930,12 @@ TABLE_ROWS = (
 TABLE_PAGES = ["표지", f"■ 안내\n{TABLE_TITLE}\n\n{TABLE_ROWS}"]
 SENTENCE = "경쟁이 있을 경우 해당 주택건설지역인 울산광역시 거주자가 우선합니다."
 SENTENCE_PAGES = ["표지", f"앞 줄\n  {SENTENCE}\n다음 줄\n그 다음 줄\n"]
+
+
+def test_rule_lines_counts_the_lines_each_rule_looks_for():
+    pages = [*BLOCK_PAGES, *TABLE_PAGES, *SENTENCE_PAGES, "경쟁이 있을 경우\n거주자가 우선합니다."]
+    assert pf.rule_lines(pages) == (1, 2, 1, 2)
+    assert pf.rule_lines(["표지"]) == (0, 0, 0, 0)
 
 
 def test_rule_1_block_says_it_is_rule_1():
