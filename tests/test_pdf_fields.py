@@ -977,7 +977,8 @@ def test_resident_block_ends_at_a_line_that_starts_with_a_marker_or_has_the_circ
 
 
 def test_resident_block_ends_at_a_marker_in_the_middle_of_a_line_too():
-    # 2026000293 꼴: 표 칸 글자가 앞에 붙어 `■`가 줄 처음에 오지 않는다(이전 코드는 `"■" in rest`로 끝냈다)
+    # 2026000293 꼴: 표 칸 글자가 앞에 붙어 `■`가 줄 처음에 오지 않는다
+    # (이전 코드는 `"■" in rest`로 끝냈다)
     page = (
         f"- 2순위  : ①지역 → ②추첨\n■ ①지역 : {REGION}\n  이어지는 줄\n"
         "  당첨자 선정방법  ■ 다음 항목\n끝나고 난 줄\n"
