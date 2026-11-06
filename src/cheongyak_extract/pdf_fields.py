@@ -259,7 +259,8 @@ def _lines(pages: list[str]) -> list[tuple[int, str]]:
 
 
 def _ends_block(line: str) -> bool:
-    return line.lstrip().startswith(tuple(_HEAD_MARKS)) or "②" in line
+    """머리 기호가 줄 처음에 있거나, 표 칸 글자가 앞에 붙어 `■`가 줄 중간에 있거나, `②`가 있다."""
+    return line.lstrip().startswith(tuple(_HEAD_MARKS)) or "■" in line or "②" in line
 
 
 def _block_rule_1(pages: list[str]) -> Block | None:
