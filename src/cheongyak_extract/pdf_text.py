@@ -9,6 +9,7 @@ TEXT_MODES = ("T0", "T1")
 
 
 def _page_text(page: pymupdf.Page, sort: bool, tables: bool) -> str:
+    page.remove_rotation()  # 쪽 회전을 걸어 둔 PDF는 풀지 않으면 글자 순서가 어긋난다(2026000184)
     text = page.get_text(sort=sort)
     if not tables:
         return text

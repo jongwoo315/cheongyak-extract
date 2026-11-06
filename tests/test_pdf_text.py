@@ -79,3 +79,30 @@ def test_has_text_is_false_for_a_pdf_with_only_blank_pages_and_true_otherwise(tm
     make_pdf(blank, ["", ""])
     make_pdf(full, ["", "공고문"])
     assert has_text(full) and not has_text(blank)
+
+
+def make_rotated_pdf(path):
+    """글자를 90도 돌려 그린 쪽에 쪽 회전 90을 걸어 가로로 읽히게 한 PDF(2026000184 꼴)."""
+    doc = pymupdf.open()
+    page = doc.new_page()
+    page.insert_text((100, 700), "2순위 : ①지역 → ②추첨", fontname="korea", rotate=90)
+    page.insert_text((130, 700), "해당지역 거주자 우선", fontname="korea", rotate=90)
+    page.set_rotation(90)
+    doc.save(path)
+    doc.close()
+
+
+def test_pages_reads_a_rotated_page_in_reading_order(tmp_path):
+    # 회전을 안 풀면 get_text(sort=True)가 글자를 세로로 훑어 줄이 뒤섞인다
+    pdf = tmp_path / "notice.pdf"
+    make_rotated_pdf(pdf)
+    lines = pages(pdf)[0].split("\n")
+    assert lines[0] == "2순위 : ①지역 → ②추첨"
+    assert "해당지역 거주자 우선" in lines
+
+
+def test_pages_leaves_an_unrotated_page_as_it_was(tmp_path):
+    pdf = tmp_path / "notice.pdf"
+    make_pdf(pdf, ["first page"])
+    with pymupdf.open(pdf) as doc:
+        assert pages(pdf)[0] == doc[0].get_text(sort=True)
