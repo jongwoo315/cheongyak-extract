@@ -300,6 +300,7 @@ _SENTENCE_RE = re.compile(r"경쟁이\s*있(?:을|는)\s*경우[^.]{0,80}?거주
 # 일반공급 절 제목 줄: 줄 처음(앞 공백 허용)에 번호(1~2자리 숫자·로마 숫자) + 「일반공급」,
 # 그 뒤가 「(」·줄 끝·「신청」
 _GENERAL_TITLE = re.compile(r"^\s*(?:\d{1,2}|[IVXⅠ-Ⅻ]+)[.)]?\s*일반공급\s*(?:\(|$|신청)")
+_TOC_TAIL = re.compile(r"[.·…ㆍ]{2,}\s*\d+\s*$")  # 목차 줄 끝의 점선 + 쪽 번호. 제목 줄이 아니다
 
 
 def _block_rule_2(pages: list[str]) -> Block | None:
@@ -318,7 +319,7 @@ def general_title(pages: list[str]) -> tuple[int, int] | None:
     """문서에서 처음 나온 일반공급 절 제목 줄의 (쪽, 줄). 둘 다 1부터. 없으면 None."""
     for n, page in enumerate(pages, start=1):
         for i, line in enumerate(page.split("\n"), start=1):
-            if _GENERAL_TITLE.search(line):
+            if _GENERAL_TITLE.search(line) and not _TOC_TAIL.search(line):
                 return n, i
     return None
 

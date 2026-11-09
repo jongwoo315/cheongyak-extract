@@ -1191,6 +1191,15 @@ def test_a_line_that_is_not_a_general_supply_title_gives_no_rule_3_block(line):
     assert pf.resident_block([f"{line}\n{SENTENCE}"]) is None
 
 
+def test_a_table_of_contents_line_with_parentheses_is_not_the_title_line():
+    toc = "5  일반공급 (「주택공급에 관한 규칙」 제27조) ........ 8"
+    early = SENTENCE.replace("울산광역시", "앞쪽시")
+    pages = ["목차\n" + toc, f"특별공급\n{early}", f"{GENERAL_TITLE}\n{SENTENCE}"]
+    got = pf.resident_block(pages)
+    assert got.page == 3 and "울산광역시" in got.text
+    assert pf.general_title(pages) == (3, 1)
+
+
 def test_rule_3_takes_a_resident_sentence_written_as_gojuja_e_usun():
     page = "8. 일반공급\n단, 경쟁이 있을 경우 익산시 거주자에 우선 공급합니다.\n"
     got = pf.resident_block([page])
