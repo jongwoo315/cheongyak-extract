@@ -2,14 +2,14 @@
  "schema_version": 2,
  "diagram_type": "workflow",
  "meta": {
-  "title": "cheongyak-extract 전체 흐름 — #179 PR #14",
+  "title": "cheongyak-extract 전체 흐름 — #179 PR #14 재작업",
   "locale": "ko",
   "quality_profile": "showcase",
-  "output": "workflow-179-full.html",
+  "output": "workflow-179-full-2.html",
   "repository": {
    "url": "https://github.com/jongwoo315/cheongyak-extract",
    "provider": "github",
-   "revision": "04dd790a8969c61b72c377d24d9bf6074b8f666a"
+   "revision": "074408873f706ff672064644eb5f8d363eb4e18f"
   }
  },
  "lanes": [
@@ -71,13 +71,13 @@
    "col": 1,
    "type": "backend",
    "label": "PDF 쪽 텍스트",
-   "sublabel": "쪽마다 글자 뽑기",
-   "tag": "그대로",
+   "sublabel": "[바뀜] 쪽 회전을 풀고 글자 뽑기",
+   "tag": "조건 바뀜",
    "sources": [
     {
      "path": "src/cheongyak_extract/pdf_text.py",
-     "line": 19,
-     "label": "pages"
+     "line": 12,
+     "label": "remove_rotation"
     }
    ]
   },
@@ -124,8 +124,8 @@
    "col": 1,
    "type": "frontend",
    "label": "정답 파일 만들기",
-   "sublabel": "기존 50건 거주지 고침 + 새 30건",
-   "tag": "그대로",
+   "sublabel": "[바뀜] 2026000184 세 칸 채움",
+   "tag": "조건 바뀜",
    "sources": [
     {
      "path": "labels/pdf-only-50.json",
@@ -148,7 +148,7 @@
    "sources": [
     {
      "path": "src/cheongyak_extract/pdf_fields.py",
-     "line": 460,
+     "line": 461,
      "label": "check_labels"
     }
    ]
@@ -185,7 +185,7 @@
    "sources": [
     {
      "path": "src/cheongyak_extract/pdf_fields.py",
-     "line": 319,
+     "line": 320,
      "label": "resident_block"
     }
    ]
@@ -196,12 +196,12 @@
    "col": 3,
    "type": "cloud",
    "label": "거주지: 그 부분만 준다",
-   "sublabel": "[바뀜] 규칙마다 다른 설명 · 148건",
+   "sublabel": "[바뀜] 규칙마다 다른 설명 · 149건",
    "tag": "조건 바뀜",
    "sources": [
     {
      "path": "src/cheongyak_extract/pdf_fields.py",
-     "line": 855,
+     "line": 856,
      "label": "_extract_notice"
     }
    ]
@@ -212,12 +212,12 @@
    "col": 4,
    "type": "cloud",
    "label": "거주지: PDF 전체를 준다",
-   "sublabel": "[바뀜] 세 규칙 다 못 찾을 때만 · 1건",
+   "sublabel": "[바뀜] 세 규칙 다 못 찾을 때만 · 지금 0건",
    "tag": "범위 좁아짐",
    "sources": [
     {
      "path": "src/cheongyak_extract/pdf_fields.py",
-     "line": 855,
+     "line": 856,
      "label": "_extract_notice"
     }
    ]
