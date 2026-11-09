@@ -15,6 +15,7 @@ from cheongyak_extract.pdf_fields import (
 from cheongyak_extract.pdf_text import TEXT_MODES
 from cheongyak_extract.pipeline import evaluate, run
 from cheongyak_extract.raw_check import check_raw
+from cheongyak_extract.resident_bound import snapshot
 from cheongyak_extract.truth_check import missing_material, run_check, run_judge
 
 RAW_DIR = Path("data/raw")
@@ -92,6 +93,11 @@ def main(argv: list[str] | None = None) -> int:
         "check-pdf-labels", help="수동 정답 파일 둘(180칸)을 검사하고 요약을 쓴다(요청 없음)"
     )
     cl.add_argument("--out", type=Path, default=Path("reports/pdf-labels.md"), help="리포트 경로")
+    rb = sub.add_parser(
+        "snapshot-resident-bound",
+        help="149건의 거주지 묶음(규칙·쪽·글자 수·줄 수)을 재서 JSON으로 쓴다(요청 없음)",
+    )
+    rb.add_argument("--out", type=Path, required=True, help="JSON 경로")
     sub.add_parser("measure-normalize", help="모의 추출값 24쌍의 일치 수를 정규화 전·후로 잰다")
     args = parser.parse_args(argv)
 
@@ -99,6 +105,11 @@ def main(argv: list[str] | None = None) -> int:
         measure_normalize(
             RAW_DIR, Path("tests/fixtures/pdf_forms.json"), Path("reports/normalize.md")
         )
+        return 0
+
+    if args.cmd == "snapshot-resident-bound":
+        got = snapshot(RAW_DIR, args.out)
+        print(f"공고 {len(got)}건, 묶음 있음 {sum(v['rule'] is not None for v in got.values())}건")
         return 0
 
     if args.cmd == "check-pdf-labels":
