@@ -250,6 +250,7 @@ _ORDER_LINE = re.compile(
 )  # 일반공급 절에만 있다. 특별공급 절에는 없다
 _AREA_LINE = re.compile(r"(?:^\s*|[■￭•▌]\s*)①\s*지역")  # 머리 기호는 있어도 없어도 된다
 _BELOW = 3  # 「2순위」 줄 아래 글이 든 줄 이 수 안에 「①지역」 줄이 온다. 빈 줄은 안 센다
+_MAX_TEXT_LINES = 5  # 규칙 1 묶음은 ①지역 줄부터 글이 든 줄 이 수까지. 빈 줄은 안 센다
 _HEAD_MARKS = "■￭•▌※"
 
 
@@ -265,7 +266,8 @@ def _ends_block(line: str) -> bool:
 
 def _block_rule_1(pages: list[str]) -> Block | None:
     """「2순위 : ①지역」 줄 아래 글이 든 3줄 안의 「①지역」 줄부터, 다음 머리 기호 줄이나
-    「②」가 든 줄 앞까지다. 쪽을 넘어 찾고 이어 간다. 쪽 번호는 ①지역 줄이 있는 쪽이다."""
+    「②」가 든 줄 앞까지다. 쪽을 넘어 찾고 이어 간다. 쪽 번호는 ①지역 줄이 있는 쪽이다.
+    끝 줄이 안 나와도 ①지역 줄부터 글이 든 줄 5개에서 끝난다."""
     flat = _lines(pages)
     for i, (_, line) in enumerate(flat):
         if not _ORDER_LINE.search(line):
@@ -277,9 +279,11 @@ def _block_rule_1(pages: list[str]) -> Block | None:
                 continue
             if (mark := _AREA_LINE.search(below)) and "②" not in below[mark.start() :]:
                 body = [below[mark.start() :].lstrip()]
+                texts = 1
                 for _, rest in flat[j + 1 :]:
-                    if _ends_block(rest):
+                    if _ends_block(rest) or texts == _MAX_TEXT_LINES:
                         break
+                    texts += bool(rest.strip())
                     body.append(rest)
                 return Block(n, "\n".join(body).rstrip(), 1)
             seen += 1

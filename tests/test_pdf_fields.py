@@ -1014,6 +1014,39 @@ def test_rule_1_block_says_it_is_rule_1():
     assert pf.resident_block(BLOCK_PAGES).rule == 1
 
 
+LONG_BLOCK = "- 2순위  : ①지역 → ②추첨\n■ ①지역 : 해당지역 거주자 → 기타지역 거주자\n"
+
+
+def test_rule_1_block_stops_at_five_text_lines_when_no_end_line_comes():
+    page = LONG_BLOCK + "\n".join(f"표 줄{i}" for i in range(1, 9))  # 끝 줄 없이 글이 든 줄 9개
+    got = pf.resident_block([page])
+    assert got.rule == 1
+    assert got.text == "■ ①지역 : 해당지역 거주자 → 기타지역 거주자\n표 줄1\n표 줄2\n표 줄3\n표 줄4"
+
+
+def test_rule_1_cap_counts_text_lines_not_blank_lines():
+    page = LONG_BLOCK + "\n\n".join(f"표 줄{i}" for i in range(1, 9))
+    got = pf.resident_block([page])
+    assert len([x for x in got.text.split("\n") if x.strip()]) == 5
+    assert got.text.endswith("표 줄4")
+
+
+def test_rule_1_cap_does_not_hand_over_to_rule_2_or_3():
+    page = LONG_BLOCK + "\n".join(f"표 줄{i}" for i in range(1, 9))
+    assert pf.resident_block([page, *TABLE_PAGES, *SENTENCE_PAGES]).rule == 1
+
+
+def test_rule_1_end_line_before_the_cap_still_ends_the_block():
+    page = LONG_BLOCK + "둘째\n■ 다음 머리\n셋째\n"
+    assert pf.resident_block([page]).text == "■ ①지역 : 해당지역 거주자 → 기타지역 거주자\n둘째"
+
+
+def test_rule_1_cap_counts_across_pages():
+    pages = [LONG_BLOCK + "줄1\n줄2", "줄3\n줄4\n줄5\n줄6"]
+    got = pf.resident_block(pages)
+    assert got.page == 1 and got.text.endswith("줄4") and "줄5" not in got.text
+
+
 def test_rule_2_block_runs_from_the_table_title_line_and_has_the_page_of_the_title():
     got = pf.resident_block(TABLE_PAGES)
     assert (got.page, got.rule) == (2, 2)
