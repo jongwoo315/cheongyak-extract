@@ -1158,8 +1158,11 @@ def test_rule_3_has_no_block_without_a_general_supply_title_line():
 
 
 def test_rule_3_uses_the_first_title_line_of_the_document():
-    pages = [f"{GENERAL_TITLE}\n목차 말", "다른 말", f"8. 일반공급\n{SENTENCE}"]
-    assert pf.resident_block(pages).page == 3  # 둘째 제목 줄 뒤 문장도 첫 제목 줄 아래다
+    middle = SENTENCE.replace("울산광역시", "중간시")
+    pages = [GENERAL_TITLE, f"다른 말\n{middle}", f"8. 일반공급\n{SENTENCE}"]
+    got = pf.resident_block(pages)
+    assert got.page == 2 and "중간시" in got.text  # 둘째 제목 줄 앞이라도 첫 제목 줄 아래 문장이다
+    assert pf.general_title(pages) == (1, 1)
 
 
 @pytest.mark.parametrize(
