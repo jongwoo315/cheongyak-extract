@@ -475,7 +475,7 @@ def test_the_block_page_number_is_the_real_page_and_evidence_outside_it_is_blank
 def test_each_block_rule_gets_its_own_prompt_and_its_own_source_name(tmp_path):
     texts = {
         "U": "공고U\n<표1> 동일순위 내 지역우선 공급기준\n① 해당지역(U단지) 100%\n② 기타 0%",
-        "V": "공고V\n경쟁이 있을 경우 해당 주택건설지역인 V단지 거주자가 우선합니다.\n다음",
+        "V": f"공고V\n{GENERAL_TITLE}\n{SENTENCE.replace('울산광역시', 'V단지')}\n다음",
         "W": "공고W\n아무 말도 없다",
     }
     raw = tmp_path / "raw"
@@ -996,7 +996,8 @@ TABLE_ROWS = (
 )
 TABLE_PAGES = ["표지", f"■ 안내\n{TABLE_TITLE}\n\n{TABLE_ROWS}"]
 SENTENCE = "경쟁이 있을 경우 해당 주택건설지역인 울산광역시 거주자가 우선합니다."
-SENTENCE_PAGES = ["표지", f"앞 줄\n  {SENTENCE}\n다음 줄\n그 다음 줄\n"]
+GENERAL_TITLE = "5  일반공급 (「주택공급에 관한 규칙」 제27조)"
+SENTENCE_PAGES = ["표지", f"{GENERAL_TITLE}\n앞 줄\n  {SENTENCE}\n다음 줄\n그 다음 줄\n"]
 
 
 def test_rule_lines_counts_a_sentence_only_when_it_is_on_one_page_like_rule_3_does():
@@ -1007,6 +1008,8 @@ def test_rule_lines_counts_a_sentence_only_when_it_is_on_one_page_like_rule_3_do
 def test_rule_lines_counts_the_lines_each_rule_looks_for():
     pages = [*BLOCK_PAGES, *TABLE_PAGES, *SENTENCE_PAGES, "경쟁이 있을 경우\n거주자가 우선합니다."]
     assert pf.rule_lines(pages) == (1, 2, 1, 2)
+    assert pf.rule_lines([SENTENCE, *SENTENCE_PAGES])[3] == 1  # 제목 줄보다 앞의 문장은 안 센다
+    assert pf.rule_lines(["표지", SENTENCE])[3] == 0  # 제목 줄이 없으면 규칙 3은 문장을 안 본다
     assert pf.rule_lines(["표지"]) == (0, 0, 0, 0)
 
 
@@ -1116,17 +1119,82 @@ def test_rule_3_block_is_the_sentence_line_and_the_line_after_it():
 
 
 def test_rule_3_sentence_may_go_over_two_lines():
-    page = "동일 순위 내 경쟁이 있을 경우 해당 주택건설지역(밀양시)\n거주자가 우선합니다.\n끝\n"
+    page = (
+        f"{GENERAL_TITLE}\n동일 순위 내 경쟁이 있을 경우 해당 주택건설지역(밀양시)\n"
+        "거주자가 우선합니다.\n끝\n"
+    )
     got = pf.resident_block([page])
     assert got.rule == 3 and "거주자가 우선합니다." in got.text and "끝" not in got.text
 
 
 def test_rule_3_ignores_a_priority_sentence_for_something_other_than_residents():
     page = (
+        f"{GENERAL_TITLE}\n"
         "단 경쟁이 있을 경우 익산시에 거주한 자에 우선 공급합니다.\n"
         "경쟁이 있으면 1호에게 우선 배정합니다.\n"
     )
     assert pf.resident_block([page]) is None
+
+
+def test_rule_3_ignores_sentences_before_the_general_supply_title_and_takes_the_one_after():
+    early = f"■ 특별공급\n{SENTENCE.replace('울산광역시', '앞쪽시')}\n"
+    late = f"{GENERAL_TITLE}\n신청자격\n{SENTENCE}\n"
+    got = pf.resident_block([early, "중간 쪽", late])
+    assert (got.page, got.rule) == (3, 3) and "울산광역시" in got.text and "앞쪽시" not in got.text
+
+
+def test_rule_3_ignores_a_sentence_above_the_title_on_the_same_page():
+    page = f"{SENTENCE.replace('울산광역시', '앞쪽시')}\n{GENERAL_TITLE}\n{SENTENCE}\n"
+    assert "울산광역시" in pf.resident_block([page]).text
+
+
+def test_rule_3_finds_the_sentence_on_a_later_page_than_the_title():
+    got = pf.resident_block([GENERAL_TITLE, "다른 말", f"신청\n{SENTENCE}"])
+    assert got.rule == 3 and got.page == 3
+
+
+def test_rule_3_has_no_block_without_a_general_supply_title_line():
+    assert pf.resident_block(["표지", f"신청자격\n{SENTENCE}\n"]) is None
+
+
+def test_rule_3_uses_the_first_title_line_of_the_document():
+    pages = [f"{GENERAL_TITLE}\n목차 말", "다른 말", f"8. 일반공급\n{SENTENCE}"]
+    assert pf.resident_block(pages).page == 3  # 둘째 제목 줄 뒤 문장도 첫 제목 줄 아래다
+
+
+@pytest.mark.parametrize(
+    "line",
+    [
+        "5  일반공급 (「주택공급에 관한 규칙」 제27조)",
+        "8. 일반공급",
+        "3  일반공급 (「주택공급에 관한 규칙」제27조) 신청자격",
+        "  12) 일반공급 신청 자격",
+        "Ⅲ. 일반공급",
+        "IV 일반공급",
+    ],
+)
+def test_general_supply_title_line_forms(line):
+    assert pf.resident_block([f"{line}\n{SENTENCE}"]).rule == 3
+
+
+@pytest.mark.parametrize(
+    "line",
+    [
+        "일반공급 신청자격 기본요건",  # 번호가 없다
+        "■ 일반공급 (국민주택)",
+        "5 일반공급 ........ 16",  # 목차 꼴
+        "2026 일반공급 안내",
+        "5 특별공급",
+    ],
+)
+def test_a_line_that_is_not_a_general_supply_title_gives_no_rule_3_block(line):
+    assert pf.resident_block([f"{line}\n{SENTENCE}"]) is None
+
+
+def test_rule_3_takes_a_resident_sentence_written_as_gojuja_e_usun():
+    page = "8. 일반공급\n단, 경쟁이 있을 경우 익산시 거주자에 우선 공급합니다.\n"
+    got = pf.resident_block([page])
+    assert got.rule == 3 and "거주자에 우선" in got.text
 
 
 def test_rule_1_wins_over_rule_2_and_rule_2_over_rule_3():

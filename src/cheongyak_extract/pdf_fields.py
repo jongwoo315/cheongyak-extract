@@ -7,6 +7,7 @@ import json
 import random
 import re
 from collections import Counter
+from collections.abc import Iterator
 from pathlib import Path
 from typing import NamedTuple
 
@@ -295,7 +296,10 @@ def _block_rule_1(pages: list[str]) -> Block | None:
 # 제목 줄은 「기준」으로 끝난다. 「…공급기준(8페이지)에 따라」 같은 안내 문장은 뒤에 말이 더 있다
 _TABLE_TITLE = re.compile(r"지역\s*우선\s*공급(?:물량\s*배정)?\s*기준\s*$")
 _TABLE_LINES = 20  # 제목 줄부터 이 줄 수까지, 같은 쪽 안에서
-_SENTENCE_RE = re.compile(r"경쟁이\s*있(?:을|는)\s*경우[^.]{0,80}?거주자(?:가|를|에게)?\s*우선")
+_SENTENCE_RE = re.compile(r"경쟁이\s*있(?:을|는)\s*경우[^.]{0,80}?거주자(?:가|를|에게|에)?\s*우선")
+# 일반공급 절 제목 줄: 줄 처음(앞 공백 허용)에 번호(1~2자리 숫자·로마 숫자) + 「일반공급」,
+# 그 뒤가 「(」·줄 끝·「신청」
+_GENERAL_TITLE = re.compile(r"^\s*(?:\d{1,2}|[IVXⅠ-Ⅻ]+)[.)]?\s*일반공급\s*(?:\(|$|신청)")
 
 
 def _block_rule_2(pages: list[str]) -> Block | None:
@@ -310,15 +314,32 @@ def _block_rule_2(pages: list[str]) -> Block | None:
     return None
 
 
-def _block_rule_3(pages: list[str]) -> Block | None:
-    """「경쟁이 있을 경우 … 거주자가 우선」 문장이 시작하는 줄과 그 다음 줄(문장이 줄을 넘는다)."""
-    for n, page in enumerate(pages, start=1):
-        lines = page.split("\n")
-        for i, line in enumerate(lines):
+def _sentences(pages: list[str]) -> Iterator[Block]:
+    """첫 일반공급 절 제목 줄 아래의 「경쟁이 있을 경우 … 거주자가 우선」 문장이 시작하는 줄과
+    그 다음 줄(문장이 줄을 넘는다)을 차례로 준다. 문장은 쪽 안에서만 찾고, 제목 줄은 앞 쪽에
+    있어도 된다. 제목 줄이 없으면 아무것도 주지 않는다."""
+    title = next(
+        (
+            (n, i)
+            for n, page in enumerate(pages)
+            for i, line in enumerate(page.split("\n"))
+            if _GENERAL_TITLE.search(line)
+        ),
+        None,
+    )
+    if title is None:
+        return
+    for n in range(title[0], len(pages)):
+        lines = pages[n].split("\n")
+        for i in range(title[1] + 1 if n == title[0] else 0, len(lines)):
             text = "\n".join(lines[i : i + 2])
-            if "경쟁이" in line and _SENTENCE_RE.search(text):
-                return Block(n, text.strip(), 3)
-    return None
+            if "경쟁이" in lines[i] and _SENTENCE_RE.search(text):
+                yield Block(n + 1, text.strip(), 3)
+
+
+def _block_rule_3(pages: list[str]) -> Block | None:
+    """첫 일반공급 절 제목 줄 아래에서 처음 나온 해당지역 우선 문장의 줄과 그 다음 줄."""
+    return next(_sentences(pages), None)
 
 
 def resident_block(pages: list[str]) -> Block | None:
@@ -335,22 +356,16 @@ def resident_block(pages: list[str]) -> Block | None:
 
 def rule_lines(pages: list[str]) -> tuple[int, int, int, int]:
     """세 규칙이 찾는 줄이 텍스트에 몇 줄 있나: (순위 줄, ①지역 줄, 제목 줄, 문장).
+    문장은 규칙 3처럼 일반공급 절 제목 줄 아래만 센다.
 
     묶음을 못 찾은 공고에서 줄이 정말 없는지, 있는데 못 찾은 것인지 가른다.
     """
     text = [line for _, line in _lines(pages)]
-    sentences = 0
-    for page in pages:  # 규칙 3처럼 쪽 안에서만 센다
-        lines = page.split("\n")
-        sentences += sum(
-            "경쟁이" in a and bool(_SENTENCE_RE.search(f"{a}\n{b}"))
-            for a, b in zip(lines, [*lines[1:], ""], strict=True)
-        )
     return (
         sum(bool(_ORDER_LINE.search(t)) for t in text),
         sum(bool(_AREA_LINE.search(t)) for t in text),
         sum(bool(_TABLE_TITLE.search(t)) for t in text),
-        sentences,
+        sum(1 for _ in _sentences(pages)),
     )
 
 
