@@ -2,14 +2,14 @@
  "schema_version": 2,
  "diagram_type": "workflow",
  "meta": {
-  "title": "cheongyak-extract 전체 흐름 — #179 PR #14 재작업",
+  "title": "cheongyak-extract 전체 흐름 — #184 PR #15",
   "locale": "ko",
   "quality_profile": "showcase",
-  "output": "workflow-179-full-2.html",
+  "output": "workflow-184-full.html",
   "repository": {
    "url": "https://github.com/jongwoo315/cheongyak-extract",
    "provider": "github",
-   "revision": "074408873f706ff672064644eb5f8d363eb4e18f"
+   "revision": "1ae6fe8c892fda3cf8f2e57242f7b86e533f92e5"
   }
  },
  "lanes": [
@@ -36,6 +36,10 @@
   {
    "id": "score",
    "label": "채점·리포트 (eval-pdf)"
+  },
+  {
+   "id": "measure",
+   "label": "149건 거주지 묶음 비교 (snapshot-resident-bound)"
   }
  ],
  "mainPath": [
@@ -71,8 +75,8 @@
    "col": 1,
    "type": "backend",
    "label": "PDF 쪽 텍스트",
-   "sublabel": "[바뀜] 쪽 회전을 풀고 글자 뽑기",
-   "tag": "조건 바뀜",
+   "sublabel": "쪽 회전을 풀고 글자 뽑기",
+   "tag": "그대로",
    "sources": [
     {
      "path": "src/cheongyak_extract/pdf_text.py",
@@ -124,8 +128,8 @@
    "col": 1,
    "type": "frontend",
    "label": "정답 파일 만들기",
-   "sublabel": "[바뀜] 2026000184 세 칸 채움",
-   "tag": "조건 바뀜",
+   "sublabel": "기존 50건 · 새 30건",
+   "tag": "그대로",
    "sources": [
     {
      "path": "labels/pdf-only-50.json",
@@ -143,12 +147,12 @@
    "col": 2,
    "type": "security",
    "label": "정답 검사",
-   "sublabel": "[바뀜] 근거 줄이 코드가 고른 묶음 안인가",
-   "tag": "조건 바뀜",
+   "sublabel": "근거 줄이 코드가 고른 묶음 안인가",
+   "tag": "그대로",
    "sources": [
     {
      "path": "src/cheongyak_extract/pdf_fields.py",
-     "line": 461,
+     "line": 482,
      "label": "check_labels"
     }
    ]
@@ -164,12 +168,12 @@
    "sources": [
     {
      "path": "src/cheongyak_extract/pdf_fields.py",
-     "line": 419,
+     "line": 564,
      "label": "_load"
     },
     {
      "path": "src/cheongyak_extract/pdf_fields.py",
-     "line": 259,
+     "line": 402,
      "label": "pick_resident"
     }
    ]
@@ -180,13 +184,25 @@
    "col": 2,
    "type": "backend",
    "label": "거주지 묶음 찾기",
-   "sublabel": "[바뀜] 규칙 1 ①지역 → 2 공통 표 → 3 문장",
+   "sublabel": "[바뀜] 규칙 1 줄 상한 · 규칙 3 절 한정",
    "tag": "조건 바뀜",
    "sources": [
     {
      "path": "src/cheongyak_extract/pdf_fields.py",
-     "line": 320,
+     "line": 347,
      "label": "resident_block"
+    },
+    {
+     "path": "src/cheongyak_extract/pdf_fields.py",
+     "line": 268,
+     "end_line": 291,
+     "label": "_block_rule_1 (5줄 상한)"
+    },
+    {
+     "path": "src/cheongyak_extract/pdf_fields.py",
+     "line": 318,
+     "end_line": 344,
+     "label": "general_title · _block_rule_3"
     }
    ]
   },
@@ -196,13 +212,14 @@
    "col": 3,
    "type": "cloud",
    "label": "거주지: 그 부분만 준다",
-   "sublabel": "[바뀜] 규칙마다 다른 설명 · 149건",
-   "tag": "조건 바뀜",
+   "sublabel": "규칙마다 다른 설명 · 149건 모두",
+   "tag": "그대로",
    "sources": [
     {
      "path": "src/cheongyak_extract/pdf_fields.py",
-     "line": 856,
-     "label": "_extract_notice"
+     "line": 885,
+     "end_line": 888,
+     "label": "묶음만 준다"
     }
    ]
   },
@@ -212,13 +229,14 @@
    "col": 4,
    "type": "cloud",
    "label": "거주지: PDF 전체를 준다",
-   "sublabel": "[바뀜] 세 규칙 다 못 찾을 때만 · 지금 0건",
-   "tag": "범위 좁아짐",
+   "sublabel": "셋 다 못 찾을 때만 · 지금 0/149",
+   "tag": "그대로",
    "sources": [
     {
      "path": "src/cheongyak_extract/pdf_fields.py",
-     "line": 856,
-     "label": "_extract_notice"
+     "line": 889,
+     "end_line": 891,
+     "label": "PDF 전체를 준다"
     }
    ]
   },
@@ -233,8 +251,8 @@
    "sources": [
     {
      "path": "src/cheongyak_extract/pdf_fields.py",
-     "line": 717,
-     "end_line": 721,
+     "line": 893,
+     "end_line": 897,
      "label": "두 필드 호출"
     }
    ]
@@ -250,12 +268,12 @@
    "sources": [
     {
      "path": "src/cheongyak_extract/pdf_fields.py",
-     "line": 410,
+     "line": 555,
      "label": "cell_state"
     },
     {
      "path": "src/cheongyak_extract/pdf_fields.py",
-     "line": 142,
+     "line": 178,
      "label": "normal_form"
     }
    ]
@@ -271,7 +289,7 @@
    "sources": [
     {
      "path": "src/cheongyak_extract/pdf_fields.py",
-     "line": 603,
+     "line": 779,
      "label": "render_eval"
     },
     {
@@ -301,7 +319,7 @@
    "col": 4,
    "type": "database",
    "label": "jw 판정 파일·집계",
-   "sublabel": "정규화로 같아진 칸도 jw 판정을 파일에 남김",
+   "sublabel": "정규화로 같아진 칸도 jw 판정을 남김",
    "tag": "그대로",
    "sources": [
     {
@@ -343,6 +361,56 @@
      "path": "src/cheongyak_extract/truth_check.py",
      "line": 413,
      "label": "run_check"
+    }
+   ]
+  },
+  {
+   "id": "snap",
+   "lane": "measure",
+   "col": 2,
+   "type": "backend",
+   "label": "149건 묶음 다시 고르기",
+   "sublabel": "[새로] 규칙·쪽·글자 수·줄 수·본문",
+   "tag": "새로 생김",
+   "sources": [
+    {
+     "path": "src/cheongyak_extract/resident_bound.py",
+     "line": 18,
+     "label": "snap"
+    },
+    {
+     "path": "src/cheongyak_extract/resident_bound.py",
+     "line": 37,
+     "label": "snapshot"
+    },
+    {
+     "path": "src/cheongyak_extract/__main__.py",
+     "line": 114,
+     "label": "snapshot-resident-bound"
+    }
+   ]
+  },
+  {
+   "id": "compare",
+   "lane": "measure",
+   "col": 3,
+   "type": "database",
+   "label": "고치기 전 값과 비교",
+   "sublabel": "[새로] 바뀐 공고 4건 · PDF 전체 0/149",
+   "tag": "새로 생김",
+   "sources": [
+    {
+     "path": "src/cheongyak_extract/resident_bound.py",
+     "line": 78,
+     "label": "compare"
+    },
+    {
+     "path": "reports/resident-bound-before.json",
+     "label": "a51fe89 코드로 잰 값"
+    },
+    {
+     "path": "reports/resident-bound.md",
+     "label": "비교 리포트"
     }
    ]
   }
@@ -434,7 +502,10 @@
    "id": "e-pages-pdfvals",
    "from": "pages",
    "to": "pdfvals",
-   "label": "루프가 읽음"
+   "label": "루프가 읽음",
+   "route": "straight",
+   "fromSide": "bottom",
+   "toSide": "top"
   },
   {
    "id": "e-pdfvals-norm",
@@ -457,6 +528,19 @@
    "id": "e-truth-judge",
    "from": "truthcheck",
    "to": "judgefile"
+  },
+  {
+   "id": "e-block-snap",
+   "from": "block",
+   "to": "snap",
+   "label": "같은 함수",
+   "variant": "dashed",
+   "role": "branch"
+  },
+  {
+   "id": "e-snap-compare",
+   "from": "snap",
+   "to": "compare"
   }
  ],
  "cards": [
@@ -464,7 +548,9 @@
    "dot": "cyan",
    "title": "읽는 법",
    "items": [
-    "[바뀜]은 main(PR #13 머지 뒤) 대비 이번 PR이 바꾼 단계다. 나머지 단계는 그대로다",
+    "[새로]·[바뀜]은 PR #14 머지(a51fe89) 대비 이번 PR이 바꾼 단계다. 나머지 단계는 그대로다",
+    "거주지 묶음은 규칙 1(일반공급 ①지역 묶음) → 규칙 2(지역우선 공급기준 표) → 규칙 3(해당지역 우선 문장) 순서로 처음 찾은 것을 쓴다",
+    "규칙 1 줄 상한은 ①지역 줄부터 글이 든 줄 5개까지 자르는 것이고, 규칙 3 절 한정은 문서에서 처음 나온 일반공급 절 제목 줄(목차 줄 제외) 아래에서만 문장을 찾는 것이다",
     "전매제한·신혼부부 소득 기준은 지금처럼 PDF 전체로 묻는다"
    ]
   }
