@@ -314,27 +314,28 @@ def _block_rule_2(pages: list[str]) -> Block | None:
     return None
 
 
+def general_title(pages: list[str]) -> tuple[int, int] | None:
+    """문서에서 처음 나온 일반공급 절 제목 줄의 (쪽, 줄). 둘 다 1부터. 없으면 None."""
+    for n, page in enumerate(pages, start=1):
+        for i, line in enumerate(page.split("\n"), start=1):
+            if _GENERAL_TITLE.search(line):
+                return n, i
+    return None
+
+
 def _sentences(pages: list[str]) -> Iterator[Block]:
     """첫 일반공급 절 제목 줄 아래의 「경쟁이 있을 경우 … 거주자가 우선」 문장이 시작하는 줄과
     그 다음 줄(문장이 줄을 넘는다)을 차례로 준다. 문장은 쪽 안에서만 찾고, 제목 줄은 앞 쪽에
     있어도 된다. 제목 줄이 없으면 아무것도 주지 않는다."""
-    title = next(
-        (
-            (n, i)
-            for n, page in enumerate(pages)
-            for i, line in enumerate(page.split("\n"))
-            if _GENERAL_TITLE.search(line)
-        ),
-        None,
-    )
+    title = general_title(pages)
     if title is None:
         return
-    for n in range(title[0], len(pages)):
-        lines = pages[n].split("\n")
-        for i in range(title[1] + 1 if n == title[0] else 0, len(lines)):
+    for n in range(title[0], len(pages) + 1):
+        lines = pages[n - 1].split("\n")
+        for i in range(title[1] if n == title[0] else 0, len(lines)):
             text = "\n".join(lines[i : i + 2])
             if "경쟁이" in lines[i] and _SENTENCE_RE.search(text):
-                yield Block(n + 1, text.strip(), 3)
+                yield Block(n, text.strip(), 3)
 
 
 def _block_rule_3(pages: list[str]) -> Block | None:
