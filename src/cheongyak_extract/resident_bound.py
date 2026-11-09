@@ -152,7 +152,7 @@ def compare(before: dict[str, dict], texts: dict[str, list[str]], commands: str,
     ]
     whole = [p for p, v in after.items() if v["rule"] is None]
     out += [f"PDF 전체를 넘기는 공고: {len(whole)}/{len(after)} {' '.join(whole)}".rstrip(), ""]
-    return "\n".join(out)
+    return "\n".join(line.rstrip() for line in "\n".join(out).split("\n"))
 
 
 def report(raw_dir: Path, before: Path, out: Path, commands: str, base: str) -> str:
