@@ -15,6 +15,8 @@ from cheongyak_extract.pdf_fields import (
 from cheongyak_extract.pdf_text import TEXT_MODES
 from cheongyak_extract.pipeline import evaluate, run
 from cheongyak_extract.raw_check import check_raw
+from cheongyak_extract.resident_bound import report as resident_bound_report
+from cheongyak_extract.resident_bound import snapshot
 from cheongyak_extract.truth_check import missing_material, run_check, run_judge
 
 RAW_DIR = Path("data/raw")
@@ -92,6 +94,14 @@ def main(argv: list[str] | None = None) -> int:
         "check-pdf-labels", help="수동 정답 파일 둘(180칸)을 검사하고 요약을 쓴다(요청 없음)"
     )
     cl.add_argument("--out", type=Path, default=Path("reports/pdf-labels.md"), help="리포트 경로")
+    rb = sub.add_parser(
+        "snapshot-resident-bound",
+        help="149건의 거주지 묶음(규칙·쪽·글자 수·줄 수)을 재서 JSON으로 쓴다(요청 없음)",
+    )
+    rb.add_argument("--out", type=Path, required=True, help="JSON 경로")
+    rb.add_argument(
+        "--compare-to", type=Path, help="main 쪽 값 JSON. 주면 JSON 대신 비교 리포트를 --out에 쓴다"
+    )
     sub.add_parser("measure-normalize", help="모의 추출값 24쌍의 일치 수를 정규화 전·후로 잰다")
     args = parser.parse_args(argv)
 
@@ -99,6 +109,19 @@ def main(argv: list[str] | None = None) -> int:
         measure_normalize(
             RAW_DIR, Path("tests/fixtures/pdf_forms.json"), Path("reports/normalize.md")
         )
+        return 0
+
+    if args.cmd == "snapshot-resident-bound":
+        if args.compare_to:
+            cmd = (
+                "uv run python -m cheongyak_extract snapshot-resident-bound "
+                f"--compare-to {args.compare_to} --out {args.out}"
+            )
+            resident_bound_report(RAW_DIR, args.compare_to, args.out, cmd, "a51fe89")
+            print(f"비교 리포트를 {args.out}에 썼다")
+            return 0
+        got = snapshot(RAW_DIR, args.out)
+        print(f"공고 {len(got)}건, 묶음 있음 {sum(v['rule'] is not None for v in got.values())}건")
         return 0
 
     if args.cmd == "check-pdf-labels":

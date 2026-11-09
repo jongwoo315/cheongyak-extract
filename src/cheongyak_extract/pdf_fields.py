@@ -7,6 +7,7 @@ import json
 import random
 import re
 from collections import Counter
+from collections.abc import Iterator
 from pathlib import Path
 from typing import NamedTuple
 
@@ -250,6 +251,7 @@ _ORDER_LINE = re.compile(
 )  # 일반공급 절에만 있다. 특별공급 절에는 없다
 _AREA_LINE = re.compile(r"(?:^\s*|[■￭•▌]\s*)①\s*지역")  # 머리 기호는 있어도 없어도 된다
 _BELOW = 3  # 「2순위」 줄 아래 글이 든 줄 이 수 안에 「①지역」 줄이 온다. 빈 줄은 안 센다
+_MAX_TEXT_LINES = 5  # 규칙 1 묶음은 ①지역 줄부터 글이 든 줄 이 수까지. 빈 줄은 안 센다
 _HEAD_MARKS = "■￭•▌※"
 
 
@@ -265,7 +267,8 @@ def _ends_block(line: str) -> bool:
 
 def _block_rule_1(pages: list[str]) -> Block | None:
     """「2순위 : ①지역」 줄 아래 글이 든 3줄 안의 「①지역」 줄부터, 다음 머리 기호 줄이나
-    「②」가 든 줄 앞까지다. 쪽을 넘어 찾고 이어 간다. 쪽 번호는 ①지역 줄이 있는 쪽이다."""
+    「②」가 든 줄 앞까지다. 쪽을 넘어 찾고 이어 간다. 쪽 번호는 ①지역 줄이 있는 쪽이다.
+    끝 줄이 안 나와도 ①지역 줄부터 글이 든 줄 5개에서 끝난다."""
     flat = _lines(pages)
     for i, (_, line) in enumerate(flat):
         if not _ORDER_LINE.search(line):
@@ -277,9 +280,11 @@ def _block_rule_1(pages: list[str]) -> Block | None:
                 continue
             if (mark := _AREA_LINE.search(below)) and "②" not in below[mark.start() :]:
                 body = [below[mark.start() :].lstrip()]
+                texts = 1
                 for _, rest in flat[j + 1 :]:
-                    if _ends_block(rest):
+                    if _ends_block(rest) or texts == _MAX_TEXT_LINES:
                         break
+                    texts += bool(rest.strip())
                     body.append(rest)
                 return Block(n, "\n".join(body).rstrip(), 1)
             seen += 1
@@ -291,7 +296,11 @@ def _block_rule_1(pages: list[str]) -> Block | None:
 # 제목 줄은 「기준」으로 끝난다. 「…공급기준(8페이지)에 따라」 같은 안내 문장은 뒤에 말이 더 있다
 _TABLE_TITLE = re.compile(r"지역\s*우선\s*공급(?:물량\s*배정)?\s*기준\s*$")
 _TABLE_LINES = 20  # 제목 줄부터 이 줄 수까지, 같은 쪽 안에서
-_SENTENCE_RE = re.compile(r"경쟁이\s*있(?:을|는)\s*경우[^.]{0,80}?거주자(?:가|를|에게)?\s*우선")
+_SENTENCE_RE = re.compile(r"경쟁이\s*있(?:을|는)\s*경우[^.]{0,80}?거주자(?:가|를|에게|에)?\s*우선")
+# 일반공급 절 제목 줄: 줄 처음(앞 공백 허용)에 번호(1~2자리 숫자·로마 숫자) + 「일반공급」,
+# 그 뒤가 「(」·줄 끝·「신청」
+_GENERAL_TITLE = re.compile(r"^\s*(?:\d{1,2}|[IVXⅠ-Ⅻ]+)[.)]?\s*일반공급\s*(?:\(|$|신청)")
+_TOC_TAIL = re.compile(r"[.·…ㆍ]{2,}\s*\d+\s*$")  # 목차 줄 끝의 점선 + 쪽 번호. 제목 줄이 아니다
 
 
 def _block_rule_2(pages: list[str]) -> Block | None:
@@ -306,15 +315,33 @@ def _block_rule_2(pages: list[str]) -> Block | None:
     return None
 
 
-def _block_rule_3(pages: list[str]) -> Block | None:
-    """「경쟁이 있을 경우 … 거주자가 우선」 문장이 시작하는 줄과 그 다음 줄(문장이 줄을 넘는다)."""
+def general_title(pages: list[str]) -> tuple[int, int] | None:
+    """문서에서 처음 나온 일반공급 절 제목 줄의 (쪽, 줄). 둘 다 1부터. 없으면 None."""
     for n, page in enumerate(pages, start=1):
-        lines = page.split("\n")
-        for i, line in enumerate(lines):
-            text = "\n".join(lines[i : i + 2])
-            if "경쟁이" in line and _SENTENCE_RE.search(text):
-                return Block(n, text.strip(), 3)
+        for i, line in enumerate(page.split("\n"), start=1):
+            if _GENERAL_TITLE.search(line) and not _TOC_TAIL.search(line):
+                return n, i
     return None
+
+
+def _sentences(pages: list[str]) -> Iterator[Block]:
+    """첫 일반공급 절 제목 줄 아래의 「경쟁이 있을 경우 … 거주자가 우선」 문장이 시작하는 줄과
+    그 다음 줄(문장이 줄을 넘는다)을 차례로 준다. 문장은 쪽 안에서만 찾고, 제목 줄은 앞 쪽에
+    있어도 된다. 제목 줄이 없으면 아무것도 주지 않는다."""
+    title = general_title(pages)
+    if title is None:
+        return
+    for n in range(title[0], len(pages) + 1):
+        lines = pages[n - 1].split("\n")
+        for i in range(title[1] if n == title[0] else 0, len(lines)):
+            text = "\n".join(lines[i : i + 2])
+            if "경쟁이" in lines[i] and _SENTENCE_RE.search(text):
+                yield Block(n, text.strip(), 3)
+
+
+def _block_rule_3(pages: list[str]) -> Block | None:
+    """첫 일반공급 절 제목 줄 아래에서 처음 나온 해당지역 우선 문장의 줄과 그 다음 줄."""
+    return next(_sentences(pages), None)
 
 
 def resident_block(pages: list[str]) -> Block | None:
@@ -331,22 +358,16 @@ def resident_block(pages: list[str]) -> Block | None:
 
 def rule_lines(pages: list[str]) -> tuple[int, int, int, int]:
     """세 규칙이 찾는 줄이 텍스트에 몇 줄 있나: (순위 줄, ①지역 줄, 제목 줄, 문장).
+    문장은 규칙 3처럼 일반공급 절 제목 줄 아래만 센다.
 
     묶음을 못 찾은 공고에서 줄이 정말 없는지, 있는데 못 찾은 것인지 가른다.
     """
     text = [line for _, line in _lines(pages)]
-    sentences = 0
-    for page in pages:  # 규칙 3처럼 쪽 안에서만 센다
-        lines = page.split("\n")
-        sentences += sum(
-            "경쟁이" in a and bool(_SENTENCE_RE.search(f"{a}\n{b}"))
-            for a, b in zip(lines, [*lines[1:], ""], strict=True)
-        )
     return (
         sum(bool(_ORDER_LINE.search(t)) for t in text),
         sum(bool(_AREA_LINE.search(t)) for t in text),
         sum(bool(_TABLE_TITLE.search(t)) for t in text),
-        sentences,
+        sum(1 for _ in _sentences(pages)),
     )
 
 
