@@ -34,7 +34,7 @@ class Cell(NamedTuple):
 class LlmNew(NamedTuple):
     counts: Counts
     right_by_field: dict[str, tuple[int, int]]  # 필드 -> (정답 있는 칸, 맞은 칸)
-    wrong_cells: set[tuple[str, str]]  # (공고, 필드). 이 밖의 칸은 맞음이다
+    wrong_cells: set[tuple[str, str]]  # (공고, 필드). 이 밖의 칸은 맞다
 
 
 def _need(m: re.Match[str] | None, what: str) -> re.Match[str]:
@@ -146,7 +146,7 @@ def count(cells: list[Cell]) -> Counts:
 
 
 def cross(cells: list[Cell], llm_wrong: set[tuple[str, str]]) -> dict[str, list[Cell]]:
-    """같은 칸에서 정규식과 LLM의 맞음·틀림을 가른다. LLM은 llm_wrong 밖이 맞음이다."""
+    """같은 칸에서 정규식과 LLM의 맞음·틀림을 가른다. LLM은 llm_wrong 밖의 칸이 맞다."""
     out: dict[str, list[Cell]] = {
         "정규식 맞음, LLM 틀림": [],
         "정규식 틀림, LLM 맞음": [],
@@ -255,8 +255,8 @@ def render(
     got = cross(new, llm_new.wrong_cells)
     md += "## 4. 칸마다 갈린 곳 (재는 공고 20건)\n\n"
     md += (
-        "LLM 칸 상태는 `extract-new.md`의 「틀리게 채운 칸」 표에 있는 칸이 다른 값으로 채움이고 "
-        "나머지는 맞음이다. 틀림은 맞음이 아닌 칸(비움 또는 다른 값으로 채움)이다.\n\n"
+        "LLM 칸 상태는 `extract-new.md`의 「틀리게 채운 칸」 표에 있는 칸은 다른 값으로 채운 칸이고, "
+        "나머지 칸은 맞다. 표의 `틀림`은 비웠거나 다른 값으로 채운 칸이다.\n\n"
     )
     md += "| 구분 | 칸 수 |\n| --- | --- |\n"
     md += "".join(f"| {k} | {len(v)} |\n" for k, v in got.items())
